@@ -1,2 +1,3 @@
-# univ-fs-idb
-Universal Filesystem for IndexedDB
+# isomorphic-fs-webfs
+
+The isomorphic FileSystem API for Web File System API.
