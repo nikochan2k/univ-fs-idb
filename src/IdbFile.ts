@@ -1,19 +1,24 @@
+import { Converter, isBlob } from "univ-conv";
 import {
   AbstractFile,
   AbstractReadStream,
   AbstractWriteStream,
-  createError,
+  NoModificationAllowedError,
+  NotFoundError,
   OpenOptions,
   OpenWriteOptions,
-  joinPaths,
+  Source,
+  StringSource,
 } from "univ-fs";
-import { WfsWriteStream } from "./IdbWriteStream";
+import { CONTENT_STORE } from ".";
 import { IdbFileSystem } from "./IdbFileSystem";
 import { IdbReadStream } from "./IdbReadStream";
-
+import { IdbWriteStream } from "./IdbWriteStream";
 export class IdbFile extends AbstractFile {
-  constructor(file: IdbFileSystem, path: string) {
-    super(file, path);
+  public buffer: Blob | undefined;
+
+  constructor(private idbFS: IdbFileSystem, path: string) {
+    super(idbFS, path);
   }
 
   public async _createReadStream(
@@ -23,56 +28,116 @@ export class IdbFile extends AbstractFile {
   }
 
   public async _createWriteStream(
+    _post: boolean,
     options: OpenWriteOptions
   ): Promise<AbstractWriteStream> {
-    const fs = await (this.fs as IdbFileSystem)._getFS();
-    if (options.create) {
-      await new Promise<void>((resolve, reject) => {
-        const fullPath = joinPaths(this.fs.repository, this.path);
-        fs.root.getFile(
-          fullPath,
-          { create: true },
-          () => resolve(),
-          (e) =>
-            reject(
-              createError({
-                repository: this.fs.repository,
-                path: this.path,
-                e,
-              })
-            )
-        );
+    if (_post) {
+      const now = Date.now();
+      await this.idbFS._putEntry(this.path, {
+        accessed: now,
+        created: now,
+        modified: now,
       });
     }
-    return new WfsWriteStream(this, options);
+    return new IdbWriteStream(this, options);
+  }
+
+  public async _load(converter: Converter): Promise<Blob> {
+    if (!this.buffer) {
+      const idbFS = this.idbFS;
+      const path = this.path;
+      const db = await idbFS._open();
+      this.buffer = await new Promise<Blob>((resolve, reject) => {
+        const onerror = (ev: Event) =>
+          reject(idbFS.error(path, ev, NotFoundError.name));
+        const tx = db.transaction([CONTENT_STORE], "readonly");
+        const range = IDBKeyRange.only(path);
+        tx.onabort = onerror;
+        tx.onerror = onerror;
+        const request = tx.objectStore(CONTENT_STORE).get(range);
+        request.onerror = onerror;
+        tx.oncomplete = (ev) => {
+          const result = request.result;
+          if (result != null) {
+            if (isBlob(result)) {
+              resolve(result);
+            } else {
+              let source: Source;
+              if (typeof result === "string") {
+                source = {
+                  encoding: "BinaryString",
+                  value: request.result,
+                } as StringSource;
+              } else {
+                source = result;
+              }
+              converter
+                .toBlob(source)
+                .then((buffer) => resolve(buffer))
+                .catch((e) => reject(idbFS.error(path, e, NotFoundError.name)));
+            }
+          } else {
+            reject(idbFS.error(path, ev, NotFoundError.name));
+          }
+        };
+      });
+    }
+    return this.buffer;
   }
 
   public async _rm(): Promise<void> {
-    const fs = await (this.fs as IdbFileSystem)._getFS();
-    return new Promise<void>((resolve, reject) => {
-      const fullPath = joinPaths(this.fs.repository, this.path);
-      fs.root.getFile(
-        fullPath,
-        { create: false },
-        (entry) =>
-          entry.remove(resolve, (e) =>
-            reject(
-              createError({
-                repository: this.fs.repository,
-                path: this.path,
-                e,
-              })
-            )
-          ),
-        (e) =>
-          reject(
-            createError({
-              repository: this.fs.repository,
-              path: this.path,
-              e,
-            })
-          )
-      );
+    const idbFS = this.idbFS;
+    const path = this.path;
+    await idbFS._rm(path);
+    const db = await idbFS._open();
+    await new Promise<void>(async (resolve, reject) => {
+      const entryTx = db.transaction([CONTENT_STORE], "readwrite");
+      const onerror = (ev: Event) =>
+        reject(idbFS.error(path, ev, NoModificationAllowedError.name));
+      entryTx.onabort = onerror;
+      entryTx.onerror = onerror;
+      entryTx.oncomplete = () => resolve();
+      let range = IDBKeyRange.only(path);
+      const request = entryTx.objectStore(CONTENT_STORE).delete(range);
+      request.onerror = onerror;
+    });
+  }
+
+  public async _save(converter: Converter, source: Source): Promise<number> {
+    const idbFS = this.idbFS;
+    const path = this.path;
+    const db = await idbFS._open();
+    return new Promise<number>(async (resolve, reject) => {
+      const contentTx = db.transaction([CONTENT_STORE], "readwrite");
+      const onerror = (ev: Event) =>
+        reject(idbFS.error(path, ev, NoModificationAllowedError.name));
+      contentTx.onabort = onerror;
+      contentTx.onerror = onerror;
+      let content: Blob | ArrayBuffer | string;
+      contentTx.oncomplete = async () => {
+        if (content == null) {
+          resolve(0);
+        }
+        if (this.idbFS.supportsBlob) {
+          this.buffer = content as Blob;
+        } else if (this.idbFS.supportsArrayBuffer) {
+          this.buffer = new Blob([content]);
+        } else {
+          this.buffer = await converter.toBlob(source);
+        }
+        resolve(this.buffer.size);
+      };
+      if (idbFS.supportsBlob) {
+        content = await converter.toBlob(source);
+      } else if (idbFS.supportsArrayBuffer) {
+        content = await converter.toArrayBuffer(source);
+      } else {
+        content = await converter.toBinaryString(source);
+      }
+      const contentReq = contentTx
+        .objectStore(CONTENT_STORE)
+        .put(content, path);
+      contentReq.onerror = onerror;
     });
   }
 }

@@ -1,144 +1,157 @@
 import {
+  AbortError,
   AbstractFileSystem,
   createError,
   Directory,
   File,
   FileSystemOptions,
   HeadOptions,
-  joinPaths,
-  normalizePath,
-  NotAllowedError,
+  NoModificationAllowedError,
+  NotFoundError,
+  NotReadableError,
   NotSupportedError,
+  OperationError,
   PatchOptions,
   Props,
-  QuotaExceededError,
+  Source,
   Stats,
   URLType,
 } from "univ-fs";
+import { URL } from "url";
 import { IdbDirectory } from "./IdbDirectory";
 import { IdbFile } from "./IdbFile";
 
-const requestFileSystem =
-  window.requestFileSystem || (window as any).webkitRequestFileSystem;
-export class IdbFileSystem extends AbstractFileSystem {
-  private fs?: FileSystem;
-  private rootDir: string;
+export const ENTRY_STORE = "entries";
+export const CONTENT_STORE = "contents";
 
-  constructor(
-    rootDir: string,
-    private size: number,
-    options?: FileSystemOptions
-  ) {
-    super(normalizePath(rootDir), options);
-    this.rootDir = this.repository;
+const indexedDB: IDBFactory = window.indexedDB || (window as any).mozIndexedDB;
+
+export class IdbFileSystem extends AbstractFileSystem {
+  private db?: IDBDatabase;
+
+  public supportsArrayBuffer = false;
+  public supportsBlob = false;
+
+  constructor(dbName: string, options?: FileSystemOptions) {
+    super(dbName, options);
   }
 
-  public async _getFS() {
-    if (this.fs) {
-      return this.fs;
-    }
-    if ((window as any).webkitStorageInfo) {
-      await new Promise<void>((resolve, reject) => {
-        const webkitStorageInfo = (window as any).webkitStorageInfo;
-        webkitStorageInfo.requestQuota(
-          window.PERSISTENT,
-          this.size,
-          () => resolve(),
-          (e: any) =>
-            reject(
-              createError({
-                name: QuotaExceededError.name,
-                repository: this.repository,
-                path: "",
-                e,
-              })
-            )
-        );
-      });
-    } else if ((navigator as any).webkitPersistentStorage) {
-      await new Promise<void>((resolve, reject) => {
-        const webkitPersistentStorage = (navigator as any)
-          .webkitPersistentStorage;
-        webkitPersistentStorage.requestQuota(
-          this.size,
-          () => resolve(),
-          (e: any) =>
-            reject(
-              createError({
-                name: QuotaExceededError.name,
-                repository: this.repository,
-                path: "",
-                e,
-              })
-            )
-        );
-      });
-    }
-    const fs = await new Promise<FileSystem>((resolve, reject) => {
-      requestFileSystem(
-        window.PERSISTENT,
-        this.size,
-        (fs) => resolve(fs),
-        (e) =>
-          reject(
-            createError({
-              name: NotAllowedError.name,
-              repository: this.repository,
-              path: "",
-              e,
-            })
-          )
-      );
+  public async _getEntry(path: string): Promise<Stats> {
+    const db = await this._open();
+    return new Promise<Stats>((resolve, reject) => {
+      const tx = db.transaction([ENTRY_STORE], "readonly");
+      const range = IDBKeyRange.only(path);
+      tx.onabort = (ev: Event) => reject(this.error(path, ev, AbortError.name));
+      const onerror = (ev: Event) =>
+        reject(this.error(path, ev, NotReadableError.name));
+      tx.onerror = onerror;
+      const entryStore = tx.objectStore(ENTRY_STORE);
+      const req = entryStore.get(range);
+      req.onerror = onerror;
+      req.onsuccess = () => {
+        if (req.result != null) {
+          resolve(req.result);
+        } else {
+          reject(this.error(path, undefined, NotFoundError.name));
+        }
+      };
     });
-    await new Promise<void>((resolve, reject) => {
-      fs.root.getDirectory(
-        this.repository,
-        { create: true },
-        () => resolve(),
-        (e) =>
-          reject(
-            createError({
-              repository: this.repository,
-              path: "",
-              e,
-            })
-          )
-      );
-    });
-    this.fs = fs;
-    return fs;
   }
 
   public async _head(path: string, _options: HeadOptions): Promise<Stats> {
-    const entry = await this.getEntry(path);
-    return new Promise<Stats>((resolve, reject) => {
-      entry.getMetadata(
-        (metadata) => {
-          const modified = metadata.modificationTime.getTime();
-          if (entry.isFile) {
-            resolve({ modified, size: metadata.size });
-          } else {
-            resolve({ modified });
-          }
-        },
-        (e) =>
-          reject(
-            createError({
-              repository: this.repository,
-              path,
-              e,
-            })
-          )
-      );
+    return this._getEntry(path);
+  }
+
+  public async _open(): Promise<IDBDatabase> {
+    if (this.db) {
+      return this.db;
+    }
+
+    if (this.supportsBlob == null || this.supportsArrayBuffer == null) {
+      await this._prepare();
+    }
+
+    return new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(this.repository);
+      request.onupgradeneeded = (ev) => {
+        const request = ev.target as IDBRequest;
+        this.db = request.result as IDBDatabase;
+        const objectStoreNames = this.db.objectStoreNames;
+        if (!objectStoreNames.contains(ENTRY_STORE)) {
+          this.db.createObjectStore(ENTRY_STORE);
+        }
+        if (!objectStoreNames.contains(CONTENT_STORE)) {
+          this.db.createObjectStore(CONTENT_STORE);
+        }
+      };
+      request.onsuccess = (e) => {
+        this.db = (e.target as IDBRequest).result as IDBDatabase;
+        resolve(this.db);
+      };
+      const onerror = (ev: Event) =>
+        reject(this.error("/", ev, OperationError.name));
+      request.onerror = onerror;
+      request.onblocked = onerror;
     });
   }
 
-  public _patch(
-    _path: string,
-    _props: Props,
+  public async _patch(
+    path: string,
+    props: Props,
     _options: PatchOptions
   ): Promise<void> {
-    throw new Error("Method not implemented.");
+    let stats = await this._getEntry(path);
+    stats = { ...stats, ...props };
+    await this._putEntry(path, stats);
+  }
+
+  public async _putEntry(path: string, props: Props): Promise<void> {
+    const db = await this._open();
+    return new Promise<void>((resolve, reject) => {
+      const tx = db.transaction([ENTRY_STORE], "readwrite");
+      const onerror = (ev: Event) =>
+        reject(this.error(path, ev, NoModificationAllowedError.name));
+      tx.onabort = (ev: Event) => reject(this.error(path, ev, AbortError.name));
+      tx.onerror = onerror;
+      const req = tx.objectStore(ENTRY_STORE).put(props, path);
+      req.onerror = onerror;
+      req.onsuccess = () => resolve();
+    });
+  }
+
+  public async _rm(path: string): Promise<void> {
+    const db = await this._open();
+    await new Promise<void>(async (resolve, reject) => {
+      const entryTx = db.transaction([ENTRY_STORE], "readwrite");
+      const onerror = (ev: Event) =>
+        reject(this.error(path, ev, NoModificationAllowedError.name));
+      entryTx.onabort = onerror;
+      entryTx.onerror = onerror;
+      entryTx.oncomplete = () => {
+        resolve();
+      };
+      let range = IDBKeyRange.only(path);
+      const request = entryTx.objectStore(ENTRY_STORE).delete(range);
+      request.onerror = onerror;
+    });
+  }
+
+  public dispose() {
+    if (this.db == null) {
+      return;
+    }
+    this.db.close();
+    delete this.db;
+  }
+
+  public error(path: string, e?: any, name?: string) {
+    const error = e?.target?.error;
+    return createError({
+      name: name || OperationError.name,
+      repository: this.repository,
+      path,
+      e: error || e,
+    });
   }
 
   public async getDirectory(path: string): Promise<Directory> {
@@ -158,29 +171,61 @@ export class IdbFileSystem extends AbstractFileSystem {
         e: `"${urlType}" is not supported`,
       });
     }
-    const entry = await this.getEntry(path);
-    return entry.toURL();
+    const blob = (await this.readAll(path, { sourceType: "Blob" })) as Blob;
+    return URL.createObjectURL(blob);
   }
 
-  private async getEntry(path: string) {
-    const fs = await this._getFS();
-    return new Promise<FileEntry | DirectoryEntry>((resolve, reject) => {
-      let rejected: any;
-      const handle = (e: any) => {
-        if (rejected) {
-          reject(
-            createError({
-              repository: this.repository,
-              path,
-              e,
-            })
-          );
-        }
-        rejected = e;
+  protected async _prepare() {
+    await new Promise<void>((resolve, reject) => {
+      const dbName = "_prepare";
+      const onerror = (ev: Event) =>
+        reject(this.error("/", ev, OperationError.name));
+      const check = () => {
+        const request = indexedDB.open(dbName, 1);
+        request.onupgradeneeded = () =>
+          request.result.createObjectStore("store");
+        request.onsuccess = async () => {
+          const db = request.result;
+          await new Promise<void>((resolve) => {
+            const blob = new Blob(["test"]);
+            const tx = db.transaction("store", "readwrite");
+            const noBlob = () => {
+              this.supportsBlob = false;
+              resolve();
+            };
+            tx.oncomplete = () => {
+              this.supportsBlob = true;
+              resolve();
+            };
+            tx.onerror = noBlob;
+            tx.onabort = noBlob;
+            tx.objectStore("store").put(blob, "key");
+          });
+          await new Promise<void>((resolve) => {
+            const buffer = new ArrayBuffer(10);
+            const tx = db.transaction("store", "readwrite");
+            const noBlob = () => {
+              this.supportsArrayBuffer = false;
+              resolve();
+            };
+            tx.oncomplete = () => {
+              this.supportsArrayBuffer = true;
+              resolve();
+            };
+            tx.onerror = noBlob;
+            tx.onabort = noBlob;
+            tx.objectStore("store").put(buffer, "key");
+          });
+          db.close();
+          indexedDB.deleteDatabase(dbName);
+          resolve();
+        };
+        request.onerror = onerror;
       };
-      const fullPath = joinPaths(this.rootDir, path);
-      fs.root.getFile(fullPath, { create: false }, resolve, handle);
-      fs.root.getDirectory(fullPath, { create: false }, resolve, handle);
+      const req = indexedDB.deleteDatabase(dbName);
+      req.onsuccess = check;
+      req.onerror = check;
+      req.onblocked = onerror;
     });
   }
 }

@@ -1,116 +1,80 @@
-import { AbstractDirectory, createError, joinPaths } from "univ-fs";
-import { IdbFileSystem } from "./IdbFileSystem";
+import { AbstractDirectory, NotReadableError, Stats } from "univ-fs";
+import { ENTRY_STORE, IdbFileSystem } from "./IdbFileSystem";
 
+const DIR_OPEN_BOUND = String.fromCharCode("/".charCodeAt(0) + 1);
+
+function countSlash(path: string) {
+  let result = 0;
+  for (let i = 0, end = path.length; i < end; i++) {
+    if (path[i] === "/") {
+      result++;
+    }
+  }
+  return result;
+}
+
+function getRange(fullPath: string) {
+  if (fullPath === "/") {
+    return IDBKeyRange.bound("/", DIR_OPEN_BOUND, false, true);
+  } else {
+    return IDBKeyRange.bound(
+      fullPath + "/",
+      fullPath + DIR_OPEN_BOUND,
+      false,
+      true
+    );
+  }
+}
 export class IdbDirectory extends AbstractDirectory {
-  constructor(private wfs: IdbFileSystem, path: string) {
-    super(wfs, path);
+  constructor(private idbFS: IdbFileSystem, path: string) {
+    super(idbFS, path);
   }
 
   public async _list(): Promise<string[]> {
-    const fs = await this.wfs._getFS();
-    return new Promise<string[]>((resolve, reject) => {
-      const fullPath = joinPaths(this.fs.repository, this.path);
-      fs.root.getDirectory(
-        fullPath,
-        { create: false },
-        (directory) => {
-          const reader = directory.createReader();
-          reader.readEntries(
-            (entries) => {
-              const list: string[] = [];
-              const from = this.fs.repository.length;
-              for (const entry of entries) {
-                list.push(entry.fullPath.substr(from));
-              }
-              resolve(list);
-            },
-            (e) =>
-              reject(
-                createError({
-                  repository: this.fs.repository,
-                  path: this.path,
-                  e,
-                })
-              )
-          );
-        },
-        (e) =>
-          reject(
-            createError({
-              repository: this.fs.repository,
-              path: this.path,
-              e,
-            })
-          )
-      );
+    const path = this.path;
+    const idbFS = this.idbFS;
+    const db = await idbFS._open();
+    return new Promise<string[]>(async (resolve, reject) => {
+      const tx = db.transaction([ENTRY_STORE], "readonly");
+      const onerror = (ev: Event) =>
+        reject(idbFS.error(this.path, ev, NotReadableError.name));
+
+      tx.onabort = onerror;
+      tx.onerror = onerror;
+      const paths: string[] = [];
+      tx.oncomplete = () => resolve(paths);
+
+      let slashCount: number;
+      if (path === "/") {
+        slashCount = 1;
+      } else {
+        slashCount = countSlash("/") + 1; // + 1 is the last slash for directory
+      }
+      const range = getRange(path);
+      const request = tx.objectStore(ENTRY_STORE).openCursor(range);
+      request.onsuccess = (ev) => {
+        const cursor = (ev.target as IDBRequest).result as IDBCursorWithValue;
+        if (cursor) {
+          const pathFromDB = cursor.key.toString();
+          if (slashCount === countSlash(pathFromDB)) {
+            paths.push(pathFromDB);
+          }
+          cursor.continue();
+        }
+      };
+      request.onerror = onerror;
     });
   }
 
   public async _mkcol(): Promise<void> {
-    const fs = await this.wfs._getFS();
-    return new Promise<void>((resolve, reject) => {
-      const fullPath = joinPaths(this.fs.repository, this.path);
-      fs.root.getDirectory(
-        fullPath,
-        { create: true },
-        () => resolve(),
-        (e) =>
-          reject(
-            reject(
-              createError({
-                repository: this.fs.repository,
-                path: this.path,
-                e,
-              })
-            )
-          )
-      );
+    const now = Date.now();
+    await this.idbFS._putEntry(this.path, {
+      created: now,
+      modified: now,
     });
   }
 
-  public _rmdir(): Promise<void> {
-    return this._rd(false);
-  }
-
-  public _rmdirRecursively(): Promise<void> {
-    return this._rd(true);
-  }
-
-  private async _rd(recursive: boolean): Promise<void> {
-    const fs = await this.wfs._getFS();
-    return new Promise<void>((resolve, reject) => {
-      const fullPath = joinPaths(this.fs.repository, this.path);
-      fs.root.getDirectory(
-        fullPath,
-        { create: false },
-        (entry) => {
-          const handle = (e: any) =>
-            reject(
-              reject(
-                createError({
-                  repository: this.fs.repository,
-                  path: this.path,
-                  e,
-                })
-              )
-            );
-          if (recursive) {
-            entry.removeRecursively(resolve, handle);
-          } else {
-            entry.remove(resolve, handle);
-          }
-        },
-        (e) =>
-          reject(
-            reject(
-              createError({
-                repository: this.fs.repository,
-                path: this.path,
-                e,
-              })
-            )
-          )
-      );
-    });
+  public async _rmdir(): Promise<void> {
+    await this.idbFS._rm(this.path);
   }
 }
