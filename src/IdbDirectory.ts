@@ -1,4 +1,4 @@
-import { AbstractDirectory, NotReadableError, Stats } from "univ-fs";
+import { AbortError, AbstractDirectory, NotReadableError } from "univ-fs";
 import { ENTRY_STORE, IdbFileSystem } from "./IdbFileSystem";
 
 const DIR_OPEN_BOUND = String.fromCharCode("/".charCodeAt(0) + 1);
@@ -34,12 +34,11 @@ export class IdbDirectory extends AbstractDirectory {
     const path = this.path;
     const idbFS = this.idbFS;
     const db = await idbFS._open();
-    return new Promise<string[]>(async (resolve, reject) => {
+    return new Promise<string[]>((resolve, reject) => {
       const tx = db.transaction([ENTRY_STORE], "readonly");
+      tx.onabort = (ev) => reject(idbFS.error(path, ev, AbortError.name));
       const onerror = (ev: Event) =>
         reject(idbFS.error(this.path, ev, NotReadableError.name));
-
-      tx.onabort = onerror;
       tx.onerror = onerror;
       const paths: string[] = [];
       tx.oncomplete = () => resolve(paths);

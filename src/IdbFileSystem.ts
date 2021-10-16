@@ -38,23 +38,44 @@ export class IdbFileSystem extends AbstractFileSystem {
     super(dbName, idbOptions);
   }
 
-  public async _getEntry(path: string): Promise<Stats> {
-    const db = await this._open();
-    return new Promise<Stats>((resolve, reject) => {
-      const tx = db.transaction([ENTRY_STORE], "readonly");
-      tx.onabort = (ev) => reject(this.error(path, ev, AbortError.name));
-      const onerror = (ev: Event) =>
+  public _getObjectStore(
+    db: IDBDatabase,
+    storeName: string,
+    mode: IDBTransactionMode,
+    resolve: () => void,
+    onerror: (reason?: any) => void,
+    onabort: (reason?: any) => void
+  ): IDBObjectStore {
+    const tx = (db as IDBDatabase).transaction([storeName], mode);
+    tx.onabort = onabort;
+    tx.onerror = onerror;
+    tx.oncomplete = resolve;
+    return tx.objectStore(storeName);
+  }
+
+  public async _getEntry(path: string, db?: IDBDatabase): Promise<Stats> {
+    if (!db) {
+      db = await this._open();
+    }
+    return new Promise<Stats>(async (resolve, reject) => {
+      const onerror = (ev: any) =>
         reject(this.error(path, ev, NotReadableError.name));
-      tx.onerror = onerror;
-      tx.oncomplete = () => {
-        if (req.result != null) {
-          resolve(req.result);
-        } else {
-          reject(this.error(path, undefined, NotFoundError.name));
-        }
-      };
+      const entryStore = this._getObjectStore(
+        db as IDBDatabase,
+        ENTRY_STORE,
+        "readonly",
+        () => {
+          if (req.result != null) {
+            resolve(req.result);
+          } else {
+            reject(this.error(path, undefined, NotFoundError.name));
+          }
+        },
+        onerror,
+        (ev) => reject(this.error(path, ev, AbortError.name))
+      );
       const range = IDBKeyRange.only(path);
-      const req = tx.objectStore(ENTRY_STORE).get(range);
+      const req = entryStore.get(range);
       req.onerror = onerror;
     });
   }
@@ -76,28 +97,42 @@ export class IdbFileSystem extends AbstractFileSystem {
       await this._prepare();
     }
 
-    return new Promise<IDBDatabase>((resolve, reject) => {
+    this.db = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open(this.repository);
       request.onupgradeneeded = (ev) => {
         const request = ev.target as IDBRequest;
-        this.db = request.result as IDBDatabase;
-        const objectStoreNames = this.db.objectStoreNames;
+        const db = request.result as IDBDatabase;
+        const objectStoreNames = db.objectStoreNames;
         if (!objectStoreNames.contains(ENTRY_STORE)) {
-          this.db.createObjectStore(ENTRY_STORE);
+          db.createObjectStore(ENTRY_STORE);
         }
         if (!objectStoreNames.contains(CONTENT_STORE)) {
-          this.db.createObjectStore(CONTENT_STORE);
+          db.createObjectStore(CONTENT_STORE);
         }
       };
       request.onsuccess = (e) => {
-        this.db = (e.target as IDBRequest).result as IDBDatabase;
-        resolve(this.db);
+        const db = (e.target as IDBRequest).result as IDBDatabase;
+        resolve(db);
       };
       const onerror = (ev: Event) =>
         reject(this.error("/", ev, OperationError.name));
       request.onerror = onerror;
       request.onblocked = onerror;
     });
+
+    /*
+    try {
+      await this._getEntry("/", this.db);
+    } catch (e) {
+      if (e.name !== NotFoundError.name) {
+        throw e;
+      }
+      const now = Date.now();
+      await this._putEntry("/", { created: now, modified: now }, this.db);
+    }
+    */
+
+    return this.db;
   }
 
   public async _patch(
@@ -113,16 +148,26 @@ export class IdbFileSystem extends AbstractFileSystem {
     await this._putEntry(path, stats);
   }
 
-  public async _putEntry(path: string, props: Props): Promise<void> {
-    const db = await this._open();
+  public async _putEntry(
+    path: string,
+    props: Props,
+    db?: IDBDatabase
+  ): Promise<void> {
+    if (!db) {
+      db = await this._open();
+    }
     return new Promise<void>((resolve, reject) => {
-      const tx = db.transaction([ENTRY_STORE], "readwrite");
-      const onerror = (ev: Event) =>
+      const onerror = (ev: any) =>
         reject(this.error(path, ev, NoModificationAllowedError.name));
-      tx.onabort = (ev) => reject(this.error(path, ev, AbortError.name));
-      tx.onerror = onerror;
-      tx.oncomplete = () => resolve();
-      const req = tx.objectStore(ENTRY_STORE).put(props, path);
+      const entryStore = this._getObjectStore(
+        db as IDBDatabase,
+        ENTRY_STORE,
+        "readwrite",
+        resolve,
+        onerror,
+        (ev) => reject(this.error(path, ev, AbortError.name))
+      );
+      const req = entryStore.put(props, path);
       req.onerror = onerror;
     });
   }

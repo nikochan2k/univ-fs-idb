@@ -27,7 +27,7 @@
     "web-compile": "webpack",
     "web-build": "npm-run-all web-clean web-compile",
     "karma": "karma start",
-    "web-test": "npm-run-all web-compile karma"
+    "web-test": "npm-run-all web-build karma"
   },
   "devDependencies": {
     "@types/jasmine": "^3.10.0",
