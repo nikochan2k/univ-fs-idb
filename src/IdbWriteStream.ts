@@ -29,7 +29,7 @@ export class IdbWriteStream extends AbstractWriteStream {
       padding = 0;
     }
 
-    const newBlob = new Blob([head, new Uint8Array(padding), buffer, tail]);
+    const newBlob = new Blob([head, new Uint8Array(padding), blob, tail]);
     return this.idbFile._save(this.converter, newBlob);
   }
 

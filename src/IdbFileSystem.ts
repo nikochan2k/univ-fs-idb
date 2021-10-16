@@ -42,21 +42,20 @@ export class IdbFileSystem extends AbstractFileSystem {
     const db = await this._open();
     return new Promise<Stats>((resolve, reject) => {
       const tx = db.transaction([ENTRY_STORE], "readonly");
-      const range = IDBKeyRange.only(path);
-      tx.onabort = (ev: Event) => reject(this.error(path, ev, AbortError.name));
+      tx.onabort = (ev) => reject(this.error(path, ev, AbortError.name));
       const onerror = (ev: Event) =>
         reject(this.error(path, ev, NotReadableError.name));
       tx.onerror = onerror;
-      const entryStore = tx.objectStore(ENTRY_STORE);
-      const req = entryStore.get(range);
-      req.onerror = onerror;
-      req.onsuccess = () => {
+      tx.oncomplete = () => {
         if (req.result != null) {
           resolve(req.result);
         } else {
           reject(this.error(path, undefined, NotFoundError.name));
         }
       };
+      const range = IDBKeyRange.only(path);
+      const req = tx.objectStore(ENTRY_STORE).get(range);
+      req.onerror = onerror;
     });
   }
 
@@ -120,18 +119,18 @@ export class IdbFileSystem extends AbstractFileSystem {
       const tx = db.transaction([ENTRY_STORE], "readwrite");
       const onerror = (ev: Event) =>
         reject(this.error(path, ev, NoModificationAllowedError.name));
-      tx.onabort = (ev: Event) => reject(this.error(path, ev, AbortError.name));
+      tx.onabort = (ev) => reject(this.error(path, ev, AbortError.name));
       tx.onerror = onerror;
+      tx.oncomplete = () => resolve();
       const req = tx.objectStore(ENTRY_STORE).put(props, path);
       req.onerror = onerror;
-      req.onsuccess = () => resolve();
     });
   }
 
   public async _rm(path: string): Promise<void> {
     if (this.idbOptions?.logicalDelete) {
       try {
-        this._patch(path, { deleted: Date.now() }, {});
+        await this._patch(path, { deleted: Date.now() }, {});
       } catch (e) {
         if (e.name !== NotFoundError.name) {
           throw e;
@@ -141,13 +140,11 @@ export class IdbFileSystem extends AbstractFileSystem {
       const db = await this._open();
       await new Promise<void>(async (resolve, reject) => {
         const entryTx = db.transaction([ENTRY_STORE], "readwrite");
+        entryTx.onabort = (ev) => reject(this.error(path, ev, AbortError.name));
         const onerror = (ev: Event) =>
           reject(this.error(path, ev, NoModificationAllowedError.name));
-        entryTx.onabort = onerror;
         entryTx.onerror = onerror;
-        entryTx.oncomplete = () => {
-          resolve();
-        };
+        entryTx.oncomplete = () => resolve();
         let range = IDBKeyRange.only(path);
         const request = entryTx.objectStore(ENTRY_STORE).delete(range);
         request.onerror = onerror;
@@ -212,27 +209,27 @@ export class IdbFileSystem extends AbstractFileSystem {
               this.supportsBlob = false;
               resolve();
             };
+            tx.onerror = noBlob;
+            tx.onabort = noBlob;
             tx.oncomplete = () => {
               this.supportsBlob = true;
               resolve();
             };
-            tx.onerror = noBlob;
-            tx.onabort = noBlob;
             tx.objectStore("store").put(blob, "key");
           });
           await new Promise<void>((resolve) => {
             const buffer = new ArrayBuffer(10);
             const tx = db.transaction("store", "readwrite");
-            const noBlob = () => {
+            const noArrayBuffer = () => {
               this.supportsArrayBuffer = false;
               resolve();
             };
+            tx.onerror = noArrayBuffer;
+            tx.onabort = noArrayBuffer;
             tx.oncomplete = () => {
               this.supportsArrayBuffer = true;
               resolve();
             };
-            tx.onerror = noBlob;
-            tx.onabort = noBlob;
             tx.objectStore("store").put(buffer, "key");
           });
           db.close();

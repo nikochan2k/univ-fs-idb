@@ -1,5 +1,6 @@
 import { Converter, isBlob } from "univ-conv";
 import {
+  AbortError,
   AbstractFile,
   AbstractReadStream,
   AbstractWriteStream,
@@ -8,6 +9,7 @@ import {
   OpenOptions,
   OpenWriteOptions,
   Source,
+  Stats,
   StringSource,
 } from "univ-fs";
 import { CONTENT_STORE } from ".";
@@ -42,7 +44,8 @@ export class IdbFile extends AbstractFile {
         accessed: now,
         created: now,
         modified: now,
-      });
+        size: 0,
+      } as Stats);
       this.buffer = EMPTY_BLOB;
     } else {
       if (options.append) {
@@ -60,17 +63,20 @@ export class IdbFile extends AbstractFile {
       const path = this.path;
       const db = await idbFS._open();
       this.buffer = await new Promise<Blob>((resolve, reject) => {
+        const tx = db.transaction([CONTENT_STORE], "readonly");
+        tx.onabort = (ev) => reject(idbFS.error(path, ev, AbortError.name));
         const onerror = (ev: Event) =>
           reject(idbFS.error(path, ev, NotFoundError.name));
-        const tx = db.transaction([CONTENT_STORE], "readonly");
-        const range = IDBKeyRange.only(path);
-        tx.onabort = onerror;
         tx.onerror = onerror;
         tx.oncomplete = (ev) => {
           const result = request.result;
           if (result != null) {
             if (isBlob(result)) {
-              idbFS._patch(path, { accessed: Date.now() }, {});
+              idbFS._patch(
+                path,
+                { accessed: Date.now(), size: result.size } as Stats,
+                {}
+              );
               resolve(result);
             } else {
               let source: Source;
@@ -85,7 +91,11 @@ export class IdbFile extends AbstractFile {
               converter
                 .toBlob(source)
                 .then((blob) => {
-                  idbFS._patch(path, { accessed: Date.now() }, {});
+                  idbFS._patch(
+                    path,
+                    { accessed: Date.now(), size: blob.size } as Stats,
+                    {}
+                  );
                   resolve(blob);
                 })
                 .catch((e) => reject(idbFS.error(path, e, NotFoundError.name)));
@@ -94,6 +104,7 @@ export class IdbFile extends AbstractFile {
             reject(idbFS.error(path, ev, NotFoundError.name));
           }
         };
+        const range = IDBKeyRange.only(path);
         const request = tx.objectStore(CONTENT_STORE).get(range);
         request.onerror = onerror;
       });
@@ -106,11 +117,11 @@ export class IdbFile extends AbstractFile {
     const path = this.path;
     await idbFS._rm(path);
     const db = await idbFS._open();
-    await new Promise<void>(async (resolve, reject) => {
+    await new Promise<void>((resolve, reject) => {
       const entryTx = db.transaction([CONTENT_STORE], "readwrite");
       const onerror = (ev: Event) =>
         reject(idbFS.error(path, ev, NoModificationAllowedError.name));
-      entryTx.onabort = onerror;
+      entryTx.onabort = (ev) => reject(idbFS.error(path, ev, AbortError.name));
       entryTx.onerror = onerror;
       entryTx.oncomplete = () => resolve();
       let range = IDBKeyRange.only(path);
@@ -123,13 +134,21 @@ export class IdbFile extends AbstractFile {
     const idbFS = this.idbFS;
     const path = this.path;
     const db = await idbFS._open();
-    return new Promise<number>(async (resolve, reject) => {
+    let content: Blob | ArrayBuffer | string;
+    if (idbFS.supportsBlob) {
+      content = await converter.toBlob(source);
+    } else if (idbFS.supportsArrayBuffer) {
+      content = await converter.toArrayBuffer(source);
+    } else {
+      content = await converter.toBinaryString(source);
+    }
+    return new Promise<number>((resolve, reject) => {
       const contentTx = db.transaction([CONTENT_STORE], "readwrite");
+      contentTx.onabort = (ev) =>
+        reject(idbFS.error(path, ev, AbortError.name));
       const onerror = (ev: Event) =>
         reject(idbFS.error(path, ev, NoModificationAllowedError.name));
-      contentTx.onabort = onerror;
       contentTx.onerror = onerror;
-      let content: Blob | ArrayBuffer | string;
       contentTx.oncomplete = async () => {
         if (content == null) {
           reject(idbFS.error(path, undefined, NoModificationAllowedError.name));
@@ -141,16 +160,13 @@ export class IdbFile extends AbstractFile {
         } else {
           this.buffer = await converter.toBlob(source);
         }
-        idbFS._patch(path, { modified: Date.now() }, {});
+        await idbFS._patch(
+          path,
+          { modified: Date.now(), size: this.buffer.size } as Stats,
+          {}
+        );
         resolve(this.buffer.size);
       };
-      if (idbFS.supportsBlob) {
-        content = await converter.toBlob(source);
-      } else if (idbFS.supportsArrayBuffer) {
-        content = await converter.toArrayBuffer(source);
-      } else {
-        content = await converter.toBinaryString(source);
-      }
       const contentReq = contentTx
         .objectStore(CONTENT_STORE)
         .put(content, path);
