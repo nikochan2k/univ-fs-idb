@@ -16,7 +16,6 @@ import {
   Stats,
   URLType,
 } from "univ-fs";
-import { URL } from "url";
 import { IdbDirectory } from "./IdbDirectory";
 import { IdbFile } from "./IdbFile";
 
@@ -53,12 +52,7 @@ export class IdbFileSystem extends AbstractFileSystem {
       req.onerror = onerror;
       req.onsuccess = () => {
         if (req.result != null) {
-          const stats: Stats = req.result;
-          if (stats.deleted) {
-            reject(this.error(path, undefined, NotFoundError.name));
-          } else {
-            resolve(req.result);
-          }
+          resolve(req.result);
         } else {
           reject(this.error(path, undefined, NotFoundError.name));
         }
@@ -67,7 +61,11 @@ export class IdbFileSystem extends AbstractFileSystem {
   }
 
   public async _head(path: string, _options: HeadOptions): Promise<Stats> {
-    return this._getEntry(path);
+    const stats = await this._getEntry(path);
+    if (stats.deleted) {
+      throw this.error(path, undefined, NotFoundError.name);
+    }
+    return stats;
   }
 
   public async _open(): Promise<IDBDatabase> {
@@ -109,6 +107,9 @@ export class IdbFileSystem extends AbstractFileSystem {
     _options: PatchOptions
   ): Promise<void> {
     let stats = await this._getEntry(path);
+    if (stats.deleted) {
+      throw this.error(path, undefined, NotFoundError.name);
+    }
     stats = { ...stats, ...props };
     await this._putEntry(path, stats);
   }
