@@ -132,8 +132,7 @@ export class IdbFileSystem extends AbstractFileSystem {
       try {
         this._patch(path, { deleted: Date.now() }, {});
       } catch (e) {
-        const err = e as any;
-        if (err.name !== NotFoundError.name) {
+        if (e.name !== NotFoundError.name) {
           throw e;
         }
       }

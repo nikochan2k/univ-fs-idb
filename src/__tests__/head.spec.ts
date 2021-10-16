@@ -1,7 +1,7 @@
 import { NotFoundError } from "univ-fs";
 import { IdbFileSystem } from "../IdbFileSystem";
 
-const fs = new IdbFileSystem("/isomorphic-fs-test", 50 * 1024 * 1024);
+const fs = new IdbFileSystem("/isomorphic-fs-test");
 
 describe("head", () => {
   beforeAll(async () => {

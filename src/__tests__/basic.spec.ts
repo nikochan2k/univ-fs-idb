@@ -4,7 +4,7 @@ import { IdbFileSystem } from "../IdbFileSystem";
 
 const c = new Converter();
 
-const fs = new IdbFileSystem("/isomorphic-fs-test", 50 * 1024 * 1024);
+const fs = new IdbFileSystem("/isomorphic-fs-test");
 
 describe("basic", () => {
   beforeAll(async () => {
