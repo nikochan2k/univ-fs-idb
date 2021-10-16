@@ -13,13 +13,16 @@ import {
   OperationError,
   PatchOptions,
   Props,
-  Source,
   Stats,
   URLType,
 } from "univ-fs";
 import { URL } from "url";
 import { IdbDirectory } from "./IdbDirectory";
 import { IdbFile } from "./IdbFile";
+
+export interface IdbFileSystemOptions extends FileSystemOptions {
+  logicalDelete?: boolean;
+}
 
 export const ENTRY_STORE = "entries";
 export const CONTENT_STORE = "contents";
@@ -32,8 +35,8 @@ export class IdbFileSystem extends AbstractFileSystem {
   public supportsArrayBuffer = false;
   public supportsBlob = false;
 
-  constructor(dbName: string, options?: FileSystemOptions) {
-    super(dbName, options);
+  constructor(dbName: string, private idbOptions?: IdbFileSystemOptions) {
+    super(dbName, idbOptions);
   }
 
   public async _getEntry(path: string): Promise<Stats> {
@@ -50,7 +53,12 @@ export class IdbFileSystem extends AbstractFileSystem {
       req.onerror = onerror;
       req.onsuccess = () => {
         if (req.result != null) {
-          resolve(req.result);
+          const stats: Stats = req.result;
+          if (stats.deleted) {
+            reject(this.error(path, undefined, NotFoundError.name));
+          } else {
+            resolve(req.result);
+          }
         } else {
           reject(this.error(path, undefined, NotFoundError.name));
         }
@@ -120,20 +128,31 @@ export class IdbFileSystem extends AbstractFileSystem {
   }
 
   public async _rm(path: string): Promise<void> {
-    const db = await this._open();
-    await new Promise<void>(async (resolve, reject) => {
-      const entryTx = db.transaction([ENTRY_STORE], "readwrite");
-      const onerror = (ev: Event) =>
-        reject(this.error(path, ev, NoModificationAllowedError.name));
-      entryTx.onabort = onerror;
-      entryTx.onerror = onerror;
-      entryTx.oncomplete = () => {
-        resolve();
-      };
-      let range = IDBKeyRange.only(path);
-      const request = entryTx.objectStore(ENTRY_STORE).delete(range);
-      request.onerror = onerror;
-    });
+    if (this.idbOptions?.logicalDelete) {
+      try {
+        this._patch(path, { deleted: Date.now() }, {});
+      } catch (e) {
+        const err = e as any;
+        if (err.name !== NotFoundError.name) {
+          throw e;
+        }
+      }
+    } else {
+      const db = await this._open();
+      await new Promise<void>(async (resolve, reject) => {
+        const entryTx = db.transaction([ENTRY_STORE], "readwrite");
+        const onerror = (ev: Event) =>
+          reject(this.error(path, ev, NoModificationAllowedError.name));
+        entryTx.onabort = onerror;
+        entryTx.onerror = onerror;
+        entryTx.oncomplete = () => {
+          resolve();
+        };
+        let range = IDBKeyRange.only(path);
+        const request = entryTx.objectStore(ENTRY_STORE).delete(range);
+        request.onerror = onerror;
+      });
+    }
   }
 
   public dispose() {

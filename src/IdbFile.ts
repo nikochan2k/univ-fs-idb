@@ -60,6 +60,7 @@ export class IdbFile extends AbstractFile {
           const result = request.result;
           if (result != null) {
             if (isBlob(result)) {
+              idbFS._patch(path, { accessed: Date.now() }, {});
               resolve(result);
             } else {
               let source: Source;
@@ -73,7 +74,10 @@ export class IdbFile extends AbstractFile {
               }
               converter
                 .toBlob(source)
-                .then((buffer) => resolve(buffer))
+                .then((buffer) => {
+                  idbFS._patch(path, { accessed: Date.now() }, {});
+                  resolve(buffer);
+                })
                 .catch((e) => reject(idbFS.error(path, e, NotFoundError.name)));
             }
           } else {
@@ -116,7 +120,7 @@ export class IdbFile extends AbstractFile {
       let content: Blob | ArrayBuffer | string;
       contentTx.oncomplete = async () => {
         if (content == null) {
-          resolve(0);
+          reject(idbFS.error(path, undefined, NoModificationAllowedError.name));
         }
         if (this.idbFS.supportsBlob) {
           this.buffer = content as Blob;
@@ -125,6 +129,7 @@ export class IdbFile extends AbstractFile {
         } else {
           this.buffer = await converter.toBlob(source);
         }
+        idbFS._patch(path, { modified: Date.now() }, {});
         resolve(this.buffer.size);
       };
       if (idbFS.supportsBlob) {

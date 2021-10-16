@@ -5,14 +5,15 @@ import {
   SourceType,
 } from "univ-fs";
 import { IdbFile } from "./IdbFile";
-import { isBlob } from "univ-conv";
 
 export class IdbReadStream extends AbstractReadStream {
   constructor(private idbFile: IdbFile, options: OpenReadOptions) {
     super(idbFile, options);
   }
 
-  public async _close(): Promise<void> {}
+  public async _close(): Promise<void> {
+    delete this.idbFile.buffer;
+  }
 
   public async _read(size?: number): Promise<Source | null> {
     const buffer = await this.idbFile._load(this.converter);

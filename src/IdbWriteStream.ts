@@ -1,12 +1,13 @@
 import { AbstractWriteStream, OpenWriteOptions, Source } from "univ-fs";
 import { IdbFile } from "./IdbFile";
-import { isBlob } from "univ-conv";
 export class IdbWriteStream extends AbstractWriteStream {
   constructor(private idbFile: IdbFile, options: OpenWriteOptions) {
     super(idbFile, options);
   }
 
-  public async _close(): Promise<void> {}
+  public async _close(): Promise<void> {
+    delete this.idbFile.buffer;
+  }
 
   public async _truncate(size: number): Promise<void> {
     let buffer = await this.idbFile._load(this.converter);
