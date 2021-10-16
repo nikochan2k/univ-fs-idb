@@ -16,7 +16,7 @@ export class IdbReadStream extends AbstractReadStream {
   }
 
   public async _read(size?: number): Promise<Source | null> {
-    const buffer = await this.idbFile._load(this.converter);
+    const buffer = this.idbFile.buffer as Blob;
     const length = buffer.size;
     if (length <= this.position) {
       return null;

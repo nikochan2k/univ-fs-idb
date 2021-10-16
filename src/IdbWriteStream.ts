@@ -21,7 +21,7 @@ export class IdbWriteStream extends AbstractWriteStream {
 
   public async _write(value: Source): Promise<number> {
     const blob = await this.converter.toBlob(value);
-    const buffer = await this.idbFile._load(this.converter);
+    const buffer = this.idbFile.buffer as Blob;
     const head = buffer.slice(0, this.position);
     const tail = buffer.slice(this.position + blob.size);
     let padding = this.position - head.size;

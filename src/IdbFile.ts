@@ -14,6 +14,9 @@ import { CONTENT_STORE } from ".";
 import { IdbFileSystem } from "./IdbFileSystem";
 import { IdbReadStream } from "./IdbReadStream";
 import { IdbWriteStream } from "./IdbWriteStream";
+
+const EMPTY_BLOB = new Blob([]);
+
 export class IdbFile extends AbstractFile {
   public buffer: Blob | undefined;
 
@@ -24,22 +27,31 @@ export class IdbFile extends AbstractFile {
   public async _createReadStream(
     options: OpenOptions
   ): Promise<AbstractReadStream> {
-    return new IdbReadStream(this, options);
+    const rs = new IdbReadStream(this, options);
+    this.buffer = await this._load(rs.converter);
+    return rs;
   }
 
   public async _createWriteStream(
-    _post: boolean,
     options: OpenWriteOptions
   ): Promise<AbstractWriteStream> {
-    if (_post) {
+    const ws = new IdbWriteStream(this, options);
+    if (options.create) {
       const now = Date.now();
       await this.idbFS._putEntry(this.path, {
         accessed: now,
         created: now,
         modified: now,
       });
+      this.buffer = EMPTY_BLOB;
+    } else {
+      if (options.append) {
+        this.buffer = await this._load(ws.converter);
+      } else {
+        this.buffer = EMPTY_BLOB;
+      }
     }
-    return new IdbWriteStream(this, options);
+    return ws;
   }
 
   public async _load(converter: Converter): Promise<Blob> {
@@ -54,8 +66,6 @@ export class IdbFile extends AbstractFile {
         const range = IDBKeyRange.only(path);
         tx.onabort = onerror;
         tx.onerror = onerror;
-        const request = tx.objectStore(CONTENT_STORE).get(range);
-        request.onerror = onerror;
         tx.oncomplete = (ev) => {
           const result = request.result;
           if (result != null) {
@@ -67,16 +77,16 @@ export class IdbFile extends AbstractFile {
               if (typeof result === "string") {
                 source = {
                   encoding: "BinaryString",
-                  value: request.result,
+                  value: result,
                 } as StringSource;
               } else {
                 source = result;
               }
               converter
                 .toBlob(source)
-                .then((buffer) => {
+                .then((blob) => {
                   idbFS._patch(path, { accessed: Date.now() }, {});
-                  resolve(buffer);
+                  resolve(blob);
                 })
                 .catch((e) => reject(idbFS.error(path, e, NotFoundError.name)));
             }
@@ -84,6 +94,8 @@ export class IdbFile extends AbstractFile {
             reject(idbFS.error(path, ev, NotFoundError.name));
           }
         };
+        const request = tx.objectStore(CONTENT_STORE).get(range);
+        request.onerror = onerror;
       });
     }
     return this.buffer;
