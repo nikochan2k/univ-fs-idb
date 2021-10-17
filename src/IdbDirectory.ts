@@ -33,6 +33,7 @@ export class IdbDirectory extends AbstractDirectory {
   public async _list(): Promise<string[]> {
     const path = this.path;
     const idbFS = this.idbFS;
+    await idbFS._getEntry(path);
     const db = await idbFS._open();
     return new Promise<string[]>((resolve, reject) => {
       const paths: string[] = [];

@@ -10,7 +10,7 @@ export class IdbWriteStream extends AbstractWriteStream {
   }
 
   public async _truncate(size: number): Promise<void> {
-    let buffer = await this.idbFile._load(this.converter);
+    let buffer = this.idbFile.buffer as Blob;
     let length = buffer.size;
     if (length < size) {
       size = length;

@@ -54,63 +54,6 @@ export class IdbFile extends AbstractFile {
     return ws;
   }
 
-  public async _load(converter: Converter): Promise<Blob> {
-    if (!this.buffer) {
-      const idbFS = this.idbFS;
-      const path = this.path;
-      const db = await idbFS._open();
-      this.buffer = await new Promise<Blob>((resolve, reject) => {
-        const contentStore = idbFS._getObjectStore(
-          db as IDBDatabase,
-          CONTENT_STORE,
-          "readonly",
-          () => {
-            const result = request.result;
-            if (result != null) {
-              if (isBlob(result)) {
-                idbFS._patch(
-                  path,
-                  { accessed: Date.now(), size: result.size } as Stats,
-                  {}
-                );
-                resolve(result);
-              } else {
-                let source: Source;
-                if (typeof result === "string") {
-                  source = {
-                    encoding: "BinaryString",
-                    value: result,
-                  } as StringSource;
-                } else {
-                  source = result;
-                }
-                converter
-                  .toBlob(source)
-                  .then((blob) => {
-                    idbFS._patch(
-                      path,
-                      { accessed: Date.now(), size: blob.size } as Stats,
-                      {}
-                    );
-                    resolve(blob);
-                  })
-                  .catch((e) => idbFS._onReadError(reject, path, e));
-              }
-            } else {
-              idbFS._onNotFound(reject, path, undefined);
-            }
-          },
-          (ev) => idbFS._onReadError(reject, path, ev),
-          (ev) => idbFS._onAbort(reject, path, ev)
-        );
-        const range = IDBKeyRange.only(path);
-        const request = contentStore.get(range);
-        request.onerror = (ev) => idbFS._onReadError(reject, path, ev);
-      });
-    }
-    return this.buffer;
-  }
-
   public async _rm(): Promise<void> {
     const idbFS = this.idbFS;
     const path = this.path;
@@ -173,5 +116,60 @@ export class IdbFile extends AbstractFile {
       const contentReq = contentStore.put(content, path);
       contentReq.onerror = (ev) => idbFS._onWriteError(reject, path, ev);
     });
+  }
+
+  private async _load(converter: Converter): Promise<Blob> {
+    const idbFS = this.idbFS;
+    const path = this.path;
+    const db = await idbFS._open();
+    const buffer = await new Promise<Blob>((resolve, reject) => {
+      const contentStore = idbFS._getObjectStore(
+        db as IDBDatabase,
+        CONTENT_STORE,
+        "readonly",
+        () => {
+          const result = request.result;
+          if (result != null) {
+            if (isBlob(result)) {
+              idbFS._patch(
+                path,
+                { accessed: Date.now(), size: result.size } as Stats,
+                {}
+              );
+              resolve(result);
+            } else {
+              let source: Source;
+              if (typeof result === "string") {
+                source = {
+                  encoding: "BinaryString",
+                  value: result,
+                } as StringSource;
+              } else {
+                source = result;
+              }
+              converter
+                .toBlob(source)
+                .then((blob) => {
+                  idbFS._patch(
+                    path,
+                    { accessed: Date.now(), size: blob.size } as Stats,
+                    {}
+                  );
+                  resolve(blob);
+                })
+                .catch((e) => idbFS._onReadError(reject, path, e));
+            }
+          } else {
+            idbFS._onNotFound(reject, path, undefined);
+          }
+        },
+        (ev) => idbFS._onReadError(reject, path, ev),
+        (ev) => idbFS._onAbort(reject, path, ev)
+      );
+      const range = IDBKeyRange.only(path);
+      const request = contentStore.get(range);
+      request.onerror = (ev) => idbFS._onReadError(reject, path, ev);
+    });
+    return buffer;
   }
 }

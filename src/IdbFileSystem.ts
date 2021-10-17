@@ -40,10 +40,8 @@ export class IdbFileSystem extends AbstractFileSystem {
     super(dbName, idbOptions);
   }
 
-  public async _getEntry(path: string, db?: IDBDatabase): Promise<Stats> {
-    if (!db) {
-      db = await this._open();
-    }
+  public async _getEntry(path: string): Promise<Stats> {
+    const db = await this._open();
     return new Promise<Stats>(async (resolve, reject) => {
       const entryStore = this._getObjectStore(
         db as IDBDatabase,
@@ -196,6 +194,17 @@ export class IdbFileSystem extends AbstractFileSystem {
             });
           }
         }
+        db.onclose = () => {
+          delete this.db;
+        };
+        db.onerror = (ev) => {
+          console.warn(this.error("", ev, OperationError.name));
+          delete this.db;
+        };
+        db.onabort = (ev) => {
+          console.warn(this.error("", ev, AbortError.name));
+          delete this.db;
+        };
         resolve(db);
       };
       request.onerror = (ev) => this._onReadError(reject, "", ev);
@@ -218,14 +227,8 @@ export class IdbFileSystem extends AbstractFileSystem {
     await this._putEntry(path, stats);
   }
 
-  public async _putEntry(
-    path: string,
-    props: Props,
-    db?: IDBDatabase
-  ): Promise<void> {
-    if (!db) {
-      db = await this._open();
-    }
+  public async _putEntry(path: string, props: Props): Promise<void> {
+    const db = await this._open();
     return new Promise<void>((resolve, reject) => {
       const entryStore = this._getObjectStore(
         db as IDBDatabase,
