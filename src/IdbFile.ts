@@ -1,6 +1,5 @@
 import { Converter, isBlob } from "univ-conv";
 import {
-  AbortError,
   AbstractFile,
   AbstractReadStream,
   AbstractWriteStream,
@@ -109,7 +108,7 @@ export class IdbFile extends AbstractFile {
             }
           },
           onerror,
-          (ev) => reject(idbFS.error(path, ev, AbortError.name))
+          (ev) => idbFS._abort(reject, path, ev)
         );
         const range = IDBKeyRange.only(path);
         const request = contentStore.get(range);
@@ -128,7 +127,7 @@ export class IdbFile extends AbstractFile {
       const entryTx = db.transaction([CONTENT_STORE], "readwrite");
       const onerror = (ev: Event) =>
         reject(idbFS.error(path, ev, NoModificationAllowedError.name));
-      entryTx.onabort = (ev) => reject(idbFS.error(path, ev, AbortError.name));
+      entryTx.onabort = (ev) => idbFS._abort(reject, path, ev);
       entryTx.onerror = onerror;
       entryTx.oncomplete = () => resolve();
       let range = IDBKeyRange.only(path);
@@ -176,7 +175,7 @@ export class IdbFile extends AbstractFile {
           }
         },
         onerror,
-        (ev) => reject(idbFS.error(path, ev, AbortError.name))
+        (ev) => idbFS._abort(reject, path, ev)
       );
       const contentReq = contentStore.put(content, path);
       contentReq.onerror = onerror;

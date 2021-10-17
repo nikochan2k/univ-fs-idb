@@ -40,6 +40,10 @@ export class IdbFileSystem extends AbstractFileSystem {
     super(dbName, idbOptions);
   }
 
+  public _abort(reject: (reason?: any) => void, path: string, ev: any) {
+    reject(this.error(path, ev, AbortError.name));
+  }
+
   public async _getEntry(path: string, db?: IDBDatabase): Promise<Stats> {
     if (!db) {
       db = await this._open();
@@ -59,7 +63,7 @@ export class IdbFileSystem extends AbstractFileSystem {
           }
         },
         onerror,
-        (ev) => reject(this.error(path, ev, AbortError.name))
+        (ev) => this._abort(reject, path, ev)
       );
       const range = IDBKeyRange.only(path);
       const req = entryStore.get(range);
@@ -158,7 +162,7 @@ export class IdbFileSystem extends AbstractFileSystem {
               "readwrite",
               () => res(req.result),
               () => onerror,
-              (ev) => rej(this.error("/", ev, AbortError.name))
+              (ev) => this._abort(rej, "/", ev)
             );
             const req = entryStore.get("/");
             req.onerror = onerror;
@@ -175,7 +179,7 @@ export class IdbFileSystem extends AbstractFileSystem {
                   res();
                 },
                 () => onerror,
-                (ev) => rej(this.error("/", ev, AbortError.name))
+                (ev) => this._abort(rej, "/", ev)
               );
               const now = Date.now();
               const req = entryStore.put(
@@ -239,7 +243,7 @@ export class IdbFileSystem extends AbstractFileSystem {
         "readwrite",
         resolve,
         onerror,
-        (ev) => reject(this.error(path, ev, AbortError.name))
+        (ev) => this._abort(reject, path, ev)
       );
       const req = entryStore.put(props, path);
       req.onerror = onerror;
@@ -266,7 +270,7 @@ export class IdbFileSystem extends AbstractFileSystem {
           "readwrite",
           resolve,
           onerror,
-          (ev) => reject(this.error(path, ev, AbortError.name))
+          (ev) => this._abort(reject, path, ev)
         );
         let range = IDBKeyRange.only(path);
         const request = entryStore.delete(range);
