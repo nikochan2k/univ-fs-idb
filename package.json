@@ -31,7 +31,7 @@
   },
   "devDependencies": {
     "@types/jasmine": "^3.10.0",
-    "@types/node": "^16.11.0",
+    "@types/node": "^16.11.1",
     "expect": "^27.2.5",
     "jasmine": "^3.10.0",
     "karma": "^6.3.4",
@@ -46,7 +46,7 @@
   },
   "dependencies": {
     "tslib": "^2.3.1",
-    "univ-fs": "^0.1.23"
+    "univ-fs": "^0.1.24"
   },
   "author": "Yoshihiro Seki",
   "license": "MIT"
