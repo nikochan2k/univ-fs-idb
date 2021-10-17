@@ -22,17 +22,19 @@ import { IdbFile } from "./IdbFile";
 export interface IdbFileSystemOptions extends FileSystemOptions {
   logicalDelete?: boolean;
 }
+type VoidType = (value: void | PromiseLike<void>) => void;
 
-export const ENTRY_STORE = "entries";
-export const CONTENT_STORE = "contents";
+export const TEST_STORE = "univ-fs-test";
+export const ENTRY_STORE = "univ-fs-entries";
+export const CONTENT_STORE = "univ-fs-contents";
 
 const indexedDB: IDBFactory = window.indexedDB || (window as any).mozIndexedDB;
 
 export class IdbFileSystem extends AbstractFileSystem {
   private db?: IDBDatabase;
 
-  public supportsArrayBuffer = false;
-  public supportsBlob = false;
+  public supportsArrayBuffer: boolean | undefined;
+  public supportsBlob: boolean | undefined;
 
   constructor(dbName: string, private idbOptions?: IdbFileSystemOptions) {
     super(dbName, idbOptions);
@@ -93,16 +95,14 @@ export class IdbFileSystem extends AbstractFileSystem {
       return this.db;
     }
 
-    if (this.supportsBlob == null || this.supportsArrayBuffer == null) {
-      await this._prepare();
-    }
-
     this.db = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open(this.repository);
-      request.onupgradeneeded = (ev) => {
-        const request = ev.target as IDBRequest;
+      request.onupgradeneeded = async () => {
         const db = request.result as IDBDatabase;
         const objectStoreNames = db.objectStoreNames;
+        if (!objectStoreNames.contains(TEST_STORE)) {
+          db.createObjectStore(TEST_STORE);
+        }
         if (!objectStoreNames.contains(ENTRY_STORE)) {
           db.createObjectStore(ENTRY_STORE);
         }
@@ -110,8 +110,82 @@ export class IdbFileSystem extends AbstractFileSystem {
           db.createObjectStore(CONTENT_STORE);
         }
       };
-      request.onsuccess = (e) => {
+      request.onsuccess = async (e) => {
         const db = (e.target as IDBRequest).result as IDBDatabase;
+        if (this.supportsBlob == null || this.supportsArrayBuffer == null) {
+          const enableBlob = (res: VoidType, result: boolean) => {
+            this.supportsBlob = result;
+            res();
+          };
+          await new Promise<void>((res) => {
+            const testStore = this._getObjectStore(
+              db,
+              TEST_STORE,
+              "readwrite",
+              () => enableBlob(res, true),
+              () => enableBlob(res, false),
+              () => enableBlob(res, false)
+            );
+            const blob = new Blob(["test"]);
+            const req = testStore.put(blob, "blob");
+            req.onerror = () => enableBlob(res, false);
+          });
+
+          const enableArrayBuffer = (res: VoidType, result: boolean) => {
+            this.supportsArrayBuffer = result;
+            res();
+          };
+          await new Promise<void>((res) => {
+            const testStore = this._getObjectStore(
+              db,
+              TEST_STORE,
+              "readwrite",
+              () => enableArrayBuffer(res, true),
+              () => enableArrayBuffer(res, false),
+              () => enableArrayBuffer(res, false)
+            );
+            const buffer = new ArrayBuffer(10);
+            const req = testStore.put(buffer, "arraybuffer");
+            req.onerror = () => enableArrayBuffer(res, false);
+          });
+
+          const stats = await new Promise<Stats>((res, rej) => {
+            const onerror = (ev: any) =>
+              rej(this.error("/", ev, NotReadableError.name));
+            const entryStore = this._getObjectStore(
+              db,
+              ENTRY_STORE,
+              "readwrite",
+              () => res(req.result),
+              () => onerror,
+              (ev) => rej(this.error("/", ev, AbortError.name))
+            );
+            const req = entryStore.get("/");
+            req.onerror = onerror;
+          });
+          if (!stats) {
+            await new Promise<void>((res, rej) => {
+              const onerror = (ev: any) =>
+                rej(this.error("/", ev, NotReadableError.name));
+              const entryStore = this._getObjectStore(
+                db,
+                ENTRY_STORE,
+                "readwrite",
+                () => {
+                  res();
+                },
+                () => onerror,
+                (ev) => rej(this.error("/", ev, AbortError.name))
+              );
+              const now = Date.now();
+              const req = entryStore.put(
+                { created: now, modified: now } as Stats,
+                "/"
+              );
+              req.onerror = onerror;
+            });
+          }
+        }
         resolve(db);
       };
       const onerror = (ev: Event) =>
@@ -238,59 +312,5 @@ export class IdbFileSystem extends AbstractFileSystem {
     }
     const blob = (await this.readAll(path, { sourceType: "Blob" })) as Blob;
     return URL.createObjectURL(blob);
-  }
-
-  protected async _prepare() {
-    await new Promise<void>((resolve, reject) => {
-      const dbName = "_prepare";
-      const onerror = (ev: Event) =>
-        reject(this.error("/", ev, OperationError.name));
-      const check = () => {
-        const request = indexedDB.open(dbName, 1);
-        request.onupgradeneeded = () =>
-          request.result.createObjectStore("store");
-        request.onsuccess = async () => {
-          const db = request.result;
-          await new Promise<void>((resolve) => {
-            const blob = new Blob(["test"]);
-            const tx = db.transaction("store", "readwrite");
-            const noBlob = () => {
-              this.supportsBlob = false;
-              resolve();
-            };
-            tx.onerror = noBlob;
-            tx.onabort = noBlob;
-            tx.oncomplete = () => {
-              this.supportsBlob = true;
-              resolve();
-            };
-            tx.objectStore("store").put(blob, "key");
-          });
-          await new Promise<void>((resolve) => {
-            const buffer = new ArrayBuffer(10);
-            const tx = db.transaction("store", "readwrite");
-            const noArrayBuffer = () => {
-              this.supportsArrayBuffer = false;
-              resolve();
-            };
-            tx.onerror = noArrayBuffer;
-            tx.onabort = noArrayBuffer;
-            tx.oncomplete = () => {
-              this.supportsArrayBuffer = true;
-              resolve();
-            };
-            tx.objectStore("store").put(buffer, "key");
-          });
-          db.close();
-          indexedDB.deleteDatabase(dbName);
-          resolve();
-        };
-        request.onerror = onerror;
-      };
-      const req = indexedDB.deleteDatabase(dbName);
-      req.onsuccess = check;
-      req.onerror = check;
-      req.onblocked = onerror;
-    });
   }
 }

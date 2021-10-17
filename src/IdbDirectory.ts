@@ -55,7 +55,10 @@ export class IdbDirectory extends AbstractDirectory {
         const cursor = (ev.target as IDBRequest).result as IDBCursorWithValue;
         if (cursor) {
           const pathFromDB = cursor.key.toString();
-          if (slashCount === countSlash(pathFromDB)) {
+          if (
+            path !== pathFromDB && // remove root dir
+            slashCount === countSlash(pathFromDB)
+          ) {
             paths.push(pathFromDB);
           }
           cursor.continue();
