@@ -79,11 +79,7 @@ export class IdbFileSystem extends AbstractFileSystem {
   }
 
   public async _head(path: string, _options: HeadOptions): Promise<Stats> {
-    const stats = await this._getEntry(path);
-    if (stats.deleted) {
-      throw this.error(path, undefined, NotFoundError.name);
-    }
-    return stats;
+    return this._getEntry(path);
   }
 
   public _onAbort(reject: (reason?: any) => void, path: string, ev: any) {
@@ -219,12 +215,7 @@ export class IdbFileSystem extends AbstractFileSystem {
     props: Props,
     _options: PatchOptions
   ): Promise<void> {
-    let stats = await this._getEntry(path);
-    if (stats.deleted) {
-      throw this.error(path, undefined, NotFoundError.name);
-    }
-    stats = { ...stats, ...props };
-    await this._putEntry(path, stats);
+    await this._putEntry(path, props);
   }
 
   public async _putEntry(path: string, props: Props): Promise<void> {
