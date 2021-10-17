@@ -150,33 +150,35 @@ export class IdbFile extends AbstractFile {
       content = await converter.toBinaryString(source);
     }
     return new Promise<number>((resolve, reject) => {
-      const contentTx = db.transaction([CONTENT_STORE], "readwrite");
-      contentTx.onabort = (ev) =>
-        reject(idbFS.error(path, ev, AbortError.name));
-      const onerror = (ev: Event) =>
+      const onerror = (ev: any) =>
         reject(idbFS.error(path, ev, NoModificationAllowedError.name));
-      contentTx.onerror = onerror;
-      contentTx.oncomplete = async () => {
-        if (content == null) {
-          reject(idbFS.error(path, undefined, NoModificationAllowedError.name));
-        }
-        if (this.idbFS.supportsBlob) {
-          this.buffer = content as Blob;
-        } else if (this.idbFS.supportsArrayBuffer) {
-          this.buffer = new Blob([content]);
-        } else {
-          this.buffer = await converter.toBlob(source);
-        }
-        await idbFS._patch(
-          path,
-          { modified: Date.now(), size: this.buffer.size } as Stats,
-          {}
-        );
-        resolve(this.buffer.size);
-      };
-      const contentReq = contentTx
-        .objectStore(CONTENT_STORE)
-        .put(content, path);
+      const contentStore = idbFS._getObjectStore(
+        db as IDBDatabase,
+        CONTENT_STORE,
+        "readwrite",
+        async () => {
+          try {
+            if (this.idbFS.supportsBlob) {
+              this.buffer = content as Blob;
+            } else if (this.idbFS.supportsArrayBuffer) {
+              this.buffer = new Blob([content]);
+            } else {
+              this.buffer = await converter.toBlob(source);
+            }
+            await idbFS._patch(
+              path,
+              { modified: Date.now(), size: this.buffer.size } as Stats,
+              {}
+            );
+            resolve(this.buffer.size);
+          } catch (e) {
+            onerror(e);
+          }
+        },
+        onerror,
+        (ev) => reject(idbFS.error(path, ev, AbortError.name))
+      );
+      const contentReq = contentStore.put(content, path);
       contentReq.onerror = onerror;
     });
   }
