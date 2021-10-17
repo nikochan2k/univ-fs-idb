@@ -6,6 +6,7 @@ import {
   AbstractWriteStream,
   NoModificationAllowedError,
   NotFoundError,
+  NotReadableError,
   OpenOptions,
   OpenWriteOptions,
   Source,
@@ -63,49 +64,55 @@ export class IdbFile extends AbstractFile {
       const path = this.path;
       const db = await idbFS._open();
       this.buffer = await new Promise<Blob>((resolve, reject) => {
-        const tx = db.transaction([CONTENT_STORE], "readonly");
-        tx.onabort = (ev) => reject(idbFS.error(path, ev, AbortError.name));
-        const onerror = (ev: Event) =>
-          reject(idbFS.error(path, ev, NotFoundError.name));
-        tx.onerror = onerror;
-        tx.oncomplete = (ev) => {
-          const result = request.result;
-          if (result != null) {
-            if (isBlob(result)) {
-              idbFS._patch(
-                path,
-                { accessed: Date.now(), size: result.size } as Stats,
-                {}
-              );
-              resolve(result);
-            } else {
-              let source: Source;
-              if (typeof result === "string") {
-                source = {
-                  encoding: "BinaryString",
-                  value: result,
-                } as StringSource;
+        const onerror = (ev: any) =>
+          reject(idbFS.error(path, ev, NotReadableError.name));
+        const contentStore = idbFS._getObjectStore(
+          db as IDBDatabase,
+          CONTENT_STORE,
+          "readonly",
+          () => {
+            const result = request.result;
+            if (result != null) {
+              if (isBlob(result)) {
+                idbFS._patch(
+                  path,
+                  { accessed: Date.now(), size: result.size } as Stats,
+                  {}
+                );
+                resolve(result);
               } else {
-                source = result;
-              }
-              converter
-                .toBlob(source)
-                .then((blob) => {
-                  idbFS._patch(
-                    path,
-                    { accessed: Date.now(), size: blob.size } as Stats,
-                    {}
+                let source: Source;
+                if (typeof result === "string") {
+                  source = {
+                    encoding: "BinaryString",
+                    value: result,
+                  } as StringSource;
+                } else {
+                  source = result;
+                }
+                converter
+                  .toBlob(source)
+                  .then((blob) => {
+                    idbFS._patch(
+                      path,
+                      { accessed: Date.now(), size: blob.size } as Stats,
+                      {}
+                    );
+                    resolve(blob);
+                  })
+                  .catch((e) =>
+                    reject(idbFS.error(path, e, NotFoundError.name))
                   );
-                  resolve(blob);
-                })
-                .catch((e) => reject(idbFS.error(path, e, NotFoundError.name)));
+              }
+            } else {
+              reject(idbFS.error(path, undefined, NotFoundError.name));
             }
-          } else {
-            reject(idbFS.error(path, ev, NotFoundError.name));
-          }
-        };
+          },
+          onerror,
+          (ev) => reject(idbFS.error(path, ev, AbortError.name))
+        );
         const range = IDBKeyRange.only(path);
-        const request = tx.objectStore(CONTENT_STORE).get(range);
+        const request = contentStore.get(range);
         request.onerror = onerror;
       });
     }

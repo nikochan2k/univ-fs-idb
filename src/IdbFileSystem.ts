@@ -38,21 +38,6 @@ export class IdbFileSystem extends AbstractFileSystem {
     super(dbName, idbOptions);
   }
 
-  public _getObjectStore(
-    db: IDBDatabase,
-    storeName: string,
-    mode: IDBTransactionMode,
-    resolve: () => void,
-    onerror: (reason?: any) => void,
-    onabort: (reason?: any) => void
-  ): IDBObjectStore {
-    const tx = (db as IDBDatabase).transaction([storeName], mode);
-    tx.onabort = onabort;
-    tx.onerror = onerror;
-    tx.oncomplete = resolve;
-    return tx.objectStore(storeName);
-  }
-
   public async _getEntry(path: string, db?: IDBDatabase): Promise<Stats> {
     if (!db) {
       db = await this._open();
@@ -78,6 +63,21 @@ export class IdbFileSystem extends AbstractFileSystem {
       const req = entryStore.get(range);
       req.onerror = onerror;
     });
+  }
+
+  public _getObjectStore(
+    db: IDBDatabase,
+    storeName: string,
+    mode: IDBTransactionMode,
+    resolve: () => void,
+    onerror: (reason?: any) => void,
+    onabort: (reason?: any) => void
+  ): IDBObjectStore {
+    const tx = (db as IDBDatabase).transaction([storeName], mode);
+    tx.onabort = onabort;
+    tx.onerror = onerror;
+    tx.oncomplete = resolve;
+    return tx.objectStore(storeName);
   }
 
   public async _head(path: string, _options: HeadOptions): Promise<Stats> {
@@ -184,14 +184,18 @@ export class IdbFileSystem extends AbstractFileSystem {
     } else {
       const db = await this._open();
       await new Promise<void>(async (resolve, reject) => {
-        const entryTx = db.transaction([ENTRY_STORE], "readwrite");
-        entryTx.onabort = (ev) => reject(this.error(path, ev, AbortError.name));
         const onerror = (ev: Event) =>
           reject(this.error(path, ev, NoModificationAllowedError.name));
-        entryTx.onerror = onerror;
-        entryTx.oncomplete = () => resolve();
+        const entryStore = this._getObjectStore(
+          db as IDBDatabase,
+          ENTRY_STORE,
+          "readwrite",
+          resolve,
+          onerror,
+          (ev) => reject(this.error(path, ev, AbortError.name))
+        );
         let range = IDBKeyRange.only(path);
-        const request = entryTx.objectStore(ENTRY_STORE).delete(range);
+        const request = entryStore.delete(range);
         request.onerror = onerror;
       });
     }
