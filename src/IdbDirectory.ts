@@ -34,8 +34,12 @@ export class IdbDirectory extends AbstractDirectory {
     const path = this.path;
     const idbFS = this.idbFS;
     const stats = await idbFS._getEntry(path);
-    if (stats.size) {
-      throw idbFS.error(path, undefined, TypeMismatchError.name);
+    if (stats.size != null) {
+      throw idbFS.error(
+        path,
+        `"${path}" is not directory`,
+        TypeMismatchError.name
+      );
     }
     const db = await idbFS._open();
     return new Promise<string[]>((resolve, reject) => {
