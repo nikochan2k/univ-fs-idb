@@ -30,7 +30,7 @@ describe("list", () => {
     await fs.writeAll("/file_list", new ArrayBuffer(1));
     try {
       await fs.list("/file_list");
-      fail("/nothing exists");
+      fail("/file_list exists");
     } catch (e) {
       expect(e.name).toBe(TypeMismatchError.name);
     }
