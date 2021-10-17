@@ -3,9 +3,6 @@ import {
   AbstractFile,
   AbstractReadStream,
   AbstractWriteStream,
-  NoModificationAllowedError,
-  NotFoundError,
-  NotReadableError,
   OpenOptions,
   OpenWriteOptions,
   Source,
@@ -63,8 +60,6 @@ export class IdbFile extends AbstractFile {
       const path = this.path;
       const db = await idbFS._open();
       this.buffer = await new Promise<Blob>((resolve, reject) => {
-        const onerror = (ev: any) =>
-          reject(idbFS.error(path, ev, NotReadableError.name));
         const contentStore = idbFS._getObjectStore(
           db as IDBDatabase,
           CONTENT_STORE,
@@ -99,20 +94,18 @@ export class IdbFile extends AbstractFile {
                     );
                     resolve(blob);
                   })
-                  .catch((e) =>
-                    reject(idbFS.error(path, e, NotFoundError.name))
-                  );
+                  .catch((e) => idbFS._onReadError(reject, path, e));
               }
             } else {
-              reject(idbFS.error(path, undefined, NotFoundError.name));
+              idbFS._onNotFound(reject, path, undefined);
             }
           },
-          onerror,
-          (ev) => idbFS._abort(reject, path, ev)
+          (ev) => idbFS._onReadError(reject, path, ev),
+          (ev) => idbFS._onAbort(reject, path, ev)
         );
         const range = IDBKeyRange.only(path);
         const request = contentStore.get(range);
-        request.onerror = onerror;
+        request.onerror = (ev) => idbFS._onReadError(reject, path, ev);
       });
     }
     return this.buffer;
@@ -124,15 +117,17 @@ export class IdbFile extends AbstractFile {
     await idbFS._rm(path);
     const db = await idbFS._open();
     await new Promise<void>((resolve, reject) => {
-      const entryTx = db.transaction([CONTENT_STORE], "readwrite");
-      const onerror = (ev: Event) =>
-        reject(idbFS.error(path, ev, NoModificationAllowedError.name));
-      entryTx.onabort = (ev) => idbFS._abort(reject, path, ev);
-      entryTx.onerror = onerror;
-      entryTx.oncomplete = () => resolve();
+      const contentStore = idbFS._getObjectStore(
+        db,
+        CONTENT_STORE,
+        "readwrite",
+        resolve,
+        (ev) => idbFS._onWriteError(reject, path, ev),
+        (ev) => idbFS._onAbort(reject, path, ev)
+      );
       let range = IDBKeyRange.only(path);
-      const request = entryTx.objectStore(CONTENT_STORE).delete(range);
-      request.onerror = onerror;
+      const request = contentStore.delete(range);
+      request.onerror = (ev) => idbFS._onWriteError(reject, path, ev);
     });
   }
 
@@ -149,8 +144,6 @@ export class IdbFile extends AbstractFile {
       content = await converter.toBinaryString(source);
     }
     return new Promise<number>((resolve, reject) => {
-      const onerror = (ev: any) =>
-        reject(idbFS.error(path, ev, NoModificationAllowedError.name));
       const contentStore = idbFS._getObjectStore(
         db as IDBDatabase,
         CONTENT_STORE,
@@ -171,14 +164,14 @@ export class IdbFile extends AbstractFile {
             );
             resolve(this.buffer.size);
           } catch (e) {
-            onerror(e);
+            idbFS._onWriteError(reject, path, e);
           }
         },
-        onerror,
-        (ev) => idbFS._abort(reject, path, ev)
+        (ev) => idbFS._onWriteError(reject, path, ev),
+        (ev) => idbFS._onAbort(reject, path, ev)
       );
       const contentReq = contentStore.put(content, path);
-      contentReq.onerror = onerror;
+      contentReq.onerror = (ev) => idbFS._onWriteError(reject, path, ev);
     });
   }
 }

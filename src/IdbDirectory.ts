@@ -1,4 +1,4 @@
-import { AbstractDirectory, NotReadableError } from "univ-fs";
+import { AbstractDirectory } from "univ-fs";
 import { ENTRY_STORE, IdbFileSystem } from "./IdbFileSystem";
 
 const DIR_OPEN_BOUND = String.fromCharCode("/".charCodeAt(0) + 1);
@@ -36,15 +36,13 @@ export class IdbDirectory extends AbstractDirectory {
     const db = await idbFS._open();
     return new Promise<string[]>((resolve, reject) => {
       const paths: string[] = [];
-      const onerror = (ev: Event) =>
-        reject(idbFS.error(this.path, ev, NotReadableError.name));
       const entryStore = idbFS._getObjectStore(
         db,
         ENTRY_STORE,
         "readonly",
         () => resolve(paths),
-        onerror,
-        (ev) => idbFS._abort(reject, path, ev)
+        (ev) => idbFS._onReadError(reject, path, ev),
+        (ev) => idbFS._onAbort(reject, path, ev)
       );
 
       let slashCount: number;
@@ -68,7 +66,7 @@ export class IdbDirectory extends AbstractDirectory {
           cursor.continue();
         }
       };
-      request.onerror = onerror;
+      request.onerror = (ev) => idbFS._onReadError(reject, path, ev);
     });
   }
 
