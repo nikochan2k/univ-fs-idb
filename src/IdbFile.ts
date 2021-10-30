@@ -1,11 +1,15 @@
 import { Converter, Data, isBlob, StringData } from "univ-conv";
-import { AbstractFile, OpenOptions, Stats, WriteOptions } from "univ-fs";
+import {
+  AbstractFile,
+  NotFoundError,
+  OpenOptions,
+  Stats,
+  WriteOptions,
+} from "univ-fs";
 import { CONTENT_STORE } from ".";
 import { IdbFileSystem } from "./IdbFileSystem";
 
 export class IdbFile extends AbstractFile {
-  public buffer: Blob | undefined;
-
   constructor(private idbFS: IdbFileSystem, path: string) {
     super(idbFS, path);
   }
@@ -92,14 +96,36 @@ export class IdbFile extends AbstractFile {
     const idbFS = this.idbFS;
     const path = this.path;
     const db = await idbFS._open();
+
+    let head: Data | undefined;
+    if (options.append) {
+      try {
+        head = await this._getData(options);
+      } catch (e) {
+        if (e.name !== NotFoundError.name) {
+          throw e;
+        }
+      }
+    }
+
     let content: Blob | ArrayBuffer | string;
     if (idbFS.supportsBlob) {
       content = await converter.toBlob(data);
+      if (head) {
+        content = new Blob([await converter.toBlob(head), content]);
+      }
     } else if (idbFS.supportsArrayBuffer) {
       content = await converter.toArrayBuffer(data);
+      if (head) {
+        content = new Blob([await converter.toArrayBuffer(head), content]);
+      }
     } else {
       content = await converter.toBinaryString(data);
+      if (head) {
+        content = (await converter.toBinaryString(head)) + content;
+      }
     }
+
     return new Promise<void>((resolve, reject) => {
       const contentStore = idbFS._getObjectStore(
         db as IDBDatabase,
@@ -107,16 +133,10 @@ export class IdbFile extends AbstractFile {
         "readwrite",
         async () => {
           try {
-            if (this.idbFS.supportsBlob) {
-              this.buffer = content as Blob;
-            } else if (this.idbFS.supportsArrayBuffer) {
-              this.buffer = new Blob([content]);
-            } else {
-              this.buffer = await converter.toBlob(data);
-            }
+            const size = await converter.getSize(content);
             await idbFS._patch(
               path,
-              { modified: Date.now(), size: this.buffer.size } as Stats,
+              { modified: Date.now(), size } as Stats,
               {}
             );
             resolve();
