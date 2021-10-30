@@ -5,7 +5,6 @@ import {
   Directory,
   File,
   FileSystemOptions,
-  HeadOptions,
   NoModificationAllowedError,
   NotFoundError,
   NotReadableError,
@@ -78,7 +77,7 @@ export class IdbFileSystem extends AbstractFileSystem {
     return tx.objectStore(storeName);
   }
 
-  public async _head(path: string, _options: HeadOptions): Promise<Stats> {
+  public async _head(path: string): Promise<Stats> {
     return this._getEntry(path);
   }
 
@@ -296,7 +295,7 @@ export class IdbFileSystem extends AbstractFileSystem {
         e: `"${urlType}" is not supported`,
       });
     }
-    const blob = (await this.readAll(path, { sourceType: "Blob" })) as Blob;
+    const blob = await this.read(path, { type: "Blob" });
     return URL.createObjectURL(blob);
   }
 }
