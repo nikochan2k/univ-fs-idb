@@ -120,7 +120,8 @@ export class IdbFile extends AbstractFile {
         content = new Blob([await converter.toArrayBuffer(head), content]);
       }
     } else {
-      content = await converter.toBinaryString(data);
+      const bs = await converter.toBinaryString(data);
+      content = bs.value;
       if (head) {
         content = (await converter.toBinaryString(head)) + content;
       }
