@@ -3,6 +3,7 @@ import {
   AbstractFileSystem,
   createError,
   Directory,
+  ErrorLike,
   File,
   FileSystemOptions,
   NoModificationAllowedError,
@@ -27,7 +28,7 @@ export const TEST_STORE = "univ-fs-test";
 export const ENTRY_STORE = "univ-fs-entries";
 export const CONTENT_STORE = "univ-fs-contents";
 
-const indexedDB: IDBFactory = window.indexedDB || (window as any).mozIndexedDB;
+const indexedDB: IDBFactory = window.indexedDB || (window as any).mozIndexedDB; // eslint-disable-line
 
 export class IdbFileSystem extends AbstractFileSystem {
   private db?: IDBDatabase;
@@ -41,14 +42,14 @@ export class IdbFileSystem extends AbstractFileSystem {
 
   public async _getEntry(path: string): Promise<Stats> {
     const db = await this._open();
-    return new Promise<Stats>(async (resolve, reject) => {
+    return new Promise<Stats>((resolve, reject) => {
       const entryStore = this._getObjectStore(
-        db as IDBDatabase,
+        db,
         ENTRY_STORE,
         "readonly",
         () => {
           if (req.result != null) {
-            resolve(req.result);
+            resolve(req.result as Stats);
           } else {
             this._onNotFound(reject, path, undefined);
           }
@@ -67,10 +68,10 @@ export class IdbFileSystem extends AbstractFileSystem {
     storeName: string,
     mode: IDBTransactionMode,
     oncomplete: () => void,
-    onerror: (reason?: any) => void,
-    onabort: (reason?: any) => void
+    onerror: (reason?: any) => void, // eslint-disable-line
+    onabort: (reason?: any) => void // eslint-disable-line
   ): IDBObjectStore {
-    const tx = (db as IDBDatabase).transaction([storeName], mode);
+    const tx = db.transaction([storeName], mode);
     tx.onabort = onabort;
     tx.onerror = onerror;
     tx.oncomplete = oncomplete;
@@ -81,6 +82,7 @@ export class IdbFileSystem extends AbstractFileSystem {
     return this._getEntry(path);
   }
 
+  /* eslint-disable */
   public _onAbort(reject: (reason?: any) => void, path: string, ev: any) {
     reject(this.error(path, ev, AbortError.name));
   }
@@ -96,6 +98,7 @@ export class IdbFileSystem extends AbstractFileSystem {
   public _onWriteError(reject: (reason?: any) => void, path: string, ev: any) {
     reject(this.error(path, ev, NoModificationAllowedError.name));
   }
+  /* eslint-enable */
 
   public async _open(): Promise<IDBDatabase> {
     if (this.db) {
@@ -104,8 +107,8 @@ export class IdbFileSystem extends AbstractFileSystem {
 
     this.db = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open(this.repository);
-      request.onupgradeneeded = async () => {
-        const db = request.result as IDBDatabase;
+      request.onupgradeneeded = () => {
+        const db = request.result;
         const objectStoreNames = db.objectStoreNames;
         if (!objectStoreNames.contains(TEST_STORE)) {
           db.createObjectStore(TEST_STORE);
@@ -161,7 +164,7 @@ export class IdbFileSystem extends AbstractFileSystem {
               db,
               ENTRY_STORE,
               "readwrite",
-              () => res(req.result),
+              () => res(req.result as Stats),
               (ev) => this._onReadError(reject, "/", ev),
               (ev) => this._onAbort(rej, "/", ev)
             );
@@ -212,7 +215,7 @@ export class IdbFileSystem extends AbstractFileSystem {
   public async _patch(
     path: string,
     props: Props,
-    _options: PatchOptions
+    _options: PatchOptions // eslint-disable-line
   ): Promise<void> {
     await this._putEntry(path, props);
   }
@@ -221,7 +224,7 @@ export class IdbFileSystem extends AbstractFileSystem {
     const db = await this._open();
     return new Promise<void>((resolve, reject) => {
       const entryStore = this._getObjectStore(
-        db as IDBDatabase,
+        db,
         ENTRY_STORE,
         "readwrite",
         resolve,
@@ -237,23 +240,23 @@ export class IdbFileSystem extends AbstractFileSystem {
     if (this.idbOptions?.logicalDelete) {
       try {
         await this._patch(path, { deleted: Date.now() }, {});
-      } catch (e) {
-        if (e.name !== NotFoundError.name) {
+      } catch (e: unknown) {
+        if ((e as ErrorLike).name !== NotFoundError.name) {
           throw e;
         }
       }
     } else {
       const db = await this._open();
-      await new Promise<void>(async (resolve, reject) => {
+      await new Promise<void>((resolve, reject) => {
         const entryStore = this._getObjectStore(
-          db as IDBDatabase,
+          db,
           ENTRY_STORE,
           "readwrite",
           resolve,
           (ev) => this._onWriteError(reject, path, ev),
           (ev) => this._onAbort(reject, path, ev)
         );
-        let range = IDBKeyRange.only(path);
+        const range = IDBKeyRange.only(path);
         const request = entryStore.delete(range);
         request.onerror = (ev) => this._onWriteError(reject, path, ev);
       });
@@ -268,22 +271,26 @@ export class IdbFileSystem extends AbstractFileSystem {
     delete this.db;
   }
 
-  public error(path: string, e?: any, name?: string) {
-    const error = e?.target?.error;
+  public error(
+    path: string,
+    e?: any, // eslint-disable-line
+    name?: string
+  ) {
+    const error = e?.target?.error; // eslint-disable-line
     return createError({
       name: name || OperationError.name,
       repository: this.repository,
       path,
-      e: error || e,
+      e: (error || e) as ErrorLike,
     });
   }
 
   public async getDirectory(path: string): Promise<Directory> {
-    return new IdbDirectory(this, path);
+    return Promise.resolve(new IdbDirectory(this, path));
   }
 
   public async getFile(path: string): Promise<File> {
-    return new IdbFile(this, path);
+    return Promise.resolve(new IdbFile(this, path));
   }
 
   public async toURL(path: string, urlType: URLType = "GET"): Promise<string> {
@@ -292,7 +299,7 @@ export class IdbFileSystem extends AbstractFileSystem {
         name: NotSupportedError.name,
         repository: this.repository,
         path,
-        e: `"${urlType}" is not supported`,
+        e: { message: `"${urlType}" is not supported` },
       });
     }
     const blob = await this.read(path, { type: "Blob" });

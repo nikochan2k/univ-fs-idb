@@ -1,6 +1,7 @@
 import { Converter, Data, isBlob, StringData } from "univ-conv";
 import {
   AbstractFile,
+  ErrorLike,
   NotFoundError,
   OpenOptions,
   Stats,
@@ -28,13 +29,13 @@ export class IdbFile extends AbstractFile {
         (ev) => idbFS._onWriteError(reject, path, ev),
         (ev) => idbFS._onAbort(reject, path, ev)
       );
-      let range = IDBKeyRange.only(path);
+      const range = IDBKeyRange.only(path);
       const request = contentStore.delete(range);
       request.onerror = (ev) => idbFS._onWriteError(reject, path, ev);
     });
   }
 
-  protected async _getData(options: OpenOptions): Promise<Data> {
+  protected async _load(options: OpenOptions): Promise<Data> {
     const converter = new Converter(options);
     const idbFS = this.idbFS;
     const path = this.path;
@@ -42,18 +43,22 @@ export class IdbFile extends AbstractFile {
     const db = await idbFS._open();
     const data = await new Promise<Blob>((resolve, reject) => {
       const contentStore = idbFS._getObjectStore(
-        db as IDBDatabase,
+        db,
         CONTENT_STORE,
         "readonly",
         () => {
-          const result = request.result;
+          const result = request.result as Data;
           if (result != null) {
             if (isBlob(result)) {
-              idbFS._patch(
-                path,
-                { accessed: Date.now(), size: result.size } as Stats,
-                {}
-              );
+              idbFS
+                ._patch(
+                  path,
+                  { accessed: Date.now(), size: result.size } as Stats,
+                  {}
+                )
+                .catch((e) => {
+                  console.warn(e);
+                });
               resolve(result);
             } else {
               let data: Data;
@@ -68,11 +73,15 @@ export class IdbFile extends AbstractFile {
               converter
                 .toBlob(data)
                 .then((blob) => {
-                  idbFS._patch(
-                    path,
-                    { accessed: Date.now(), size: blob.size } as Stats,
-                    {}
-                  );
+                  idbFS
+                    ._patch(
+                      path,
+                      { accessed: Date.now(), size: blob.size } as Stats,
+                      {}
+                    )
+                    .catch((e) => {
+                      console.warn(e);
+                    });
                   resolve(blob);
                 })
                 .catch((e) => idbFS._onReadError(reject, path, e));
@@ -91,7 +100,7 @@ export class IdbFile extends AbstractFile {
     return data;
   }
 
-  protected async _write(data: Data, options: WriteOptions): Promise<void> {
+  protected async _save(data: Data, options: WriteOptions): Promise<void> {
     const converter = new Converter(options);
     const idbFS = this.idbFS;
     const path = this.path;
@@ -100,9 +109,9 @@ export class IdbFile extends AbstractFile {
     let head: Data | undefined;
     if (options.append) {
       try {
-        head = await this._getData(options);
-      } catch (e) {
-        if (e.name !== NotFoundError.name) {
+        head = await this._load(options);
+      } catch (e: unknown) {
+        if ((e as ErrorLike).name !== NotFoundError.name) {
           throw e;
         }
       }
@@ -123,27 +132,29 @@ export class IdbFile extends AbstractFile {
       const bs = await converter.toBinaryString(data);
       content = bs.value;
       if (head) {
-        content = (await converter.toBinaryString(head)) + content;
+        content = (await converter.toBinaryString(head)).value + content;
       }
     }
 
     return new Promise<void>((resolve, reject) => {
       const contentStore = idbFS._getObjectStore(
-        db as IDBDatabase,
+        db,
         CONTENT_STORE,
         "readwrite",
-        async () => {
-          try {
-            const size = await converter.getSize(content);
-            await idbFS._patch(
-              path,
-              { modified: Date.now(), size } as Stats,
-              {}
-            );
-            resolve();
-          } catch (e) {
-            idbFS._onWriteError(reject, path, e);
-          }
+        () => {
+          void (async () => {
+            try {
+              const size = await converter.getSize(content);
+              await idbFS._patch(
+                path,
+                { modified: Date.now(), size } as Stats,
+                {}
+              );
+              resolve();
+            } catch (e) {
+              idbFS._onWriteError(reject, path, e);
+            }
+          })();
         },
         (ev) => idbFS._onWriteError(reject, path, ev),
         (ev) => idbFS._onAbort(reject, path, ev)
