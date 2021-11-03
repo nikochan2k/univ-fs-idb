@@ -59,22 +59,39 @@ export class IdbDirectory extends AbstractDirectory {
       } else {
         slashCount = countSlash("/") + 1; // + 1 is the last slash for directory
       }
+
       const range = getRange(path);
-      const request = entryStore.openCursor(range);
-      request.onsuccess = (ev) => {
-        const cursor = (ev.target as IDBRequest).result as IDBCursorWithValue;
-        if (cursor) {
-          const key = cursor.key.toString();
-          if (
-            path !== key && // remove root dir
-            slashCount === countSlash(key)
-          ) {
-            paths.push(key);
+      if (typeof entryStore.getAllKeys === "function") {
+        const request = entryStore.getAllKeys(range);
+        request.onsuccess = (ev) => {
+          const keys = (ev.target as IDBRequest).result as string[];
+          for (const key of keys) {
+            if (
+              path !== key && // remove root dir
+              slashCount === countSlash(key)
+            ) {
+              paths.push(key);
+            }
           }
-          cursor.continue();
-        }
-      };
-      request.onerror = (ev) => idbFS._onReadError(reject, path, ev);
+        };
+        request.onerror = (ev) => idbFS._onReadError(reject, path, ev);
+      } else {
+        const request = entryStore.openCursor(range);
+        request.onsuccess = (ev) => {
+          const cursor = (ev.target as IDBRequest).result as IDBCursorWithValue;
+          if (cursor) {
+            const key = cursor.key.toString();
+            if (
+              path !== key && // remove root dir
+              slashCount === countSlash(key)
+            ) {
+              paths.push(key);
+            }
+            cursor.continue();
+          }
+        };
+        request.onerror = (ev) => idbFS._onReadError(reject, path, ev);
+      }
     });
   }
 

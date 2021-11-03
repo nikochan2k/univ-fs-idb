@@ -30,7 +30,7 @@
     "web-test": "npm-run-all web-build karma"
   },
   "devDependencies": {
-    "@types/jasmine": "^3.10.1",
+    "@types/jasmine": "^3.10.2",
     "@types/node": "^16.11.6",
     "@typescript-eslint/eslint-plugin": "^5.3.0",
     "@typescript-eslint/parser": "^5.3.0",
@@ -51,7 +51,7 @@
   },
   "dependencies": {
     "tslib": "^2.3.1",
-    "univ-fs": "^0.4.3"
+    "univ-fs": "^0.5.1"
   },
   "author": "Yoshihiro Seki",
   "license": "MIT"
