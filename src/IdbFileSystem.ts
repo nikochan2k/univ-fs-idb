@@ -37,6 +37,32 @@ export class IdbFileSystem extends AbstractFileSystem {
     super(dbName, options);
   }
 
+  public override _fixProps(props: Props, stats: Stats) {
+    if (props["size"]) {
+      if (stats.size == null) {
+        delete props["size"];
+      } else {
+        props["size"] = stats.size;
+      }
+    }
+    if (props["etag"]) {
+      if (stats.etag == null) {
+        delete props["etag"];
+      } else {
+        props["etag"] = stats.etag;
+      }
+    }
+    if (!props["accessed"] && stats.accessed) {
+      props["accessed"] = stats.accessed;
+    }
+    if (!props["created"] && stats.created) {
+      props["created"] = stats.created;
+    }
+    if (!props["modified"] && stats.modified) {
+      props["modified"] = stats.modified;
+    }
+  }
+
   public async _getEntry(path: string): Promise<Stats> {
     const db = await this._open();
     return new Promise<Stats>((resolve, reject) => {
@@ -95,8 +121,8 @@ export class IdbFileSystem extends AbstractFileSystem {
   public _onWriteError(reject: (reason?: any) => void, path: string, ev: any) {
     reject(this.error(path, ev, NoModificationAllowedError.name));
   }
-  /* eslint-enable */
 
+  /* eslint-enable */
   public async _open(): Promise<IDBDatabase> {
     if (this.db) {
       return this.db;
@@ -292,31 +318,5 @@ export class IdbFileSystem extends AbstractFileSystem {
     }
     const blob = await this.read(path, { type: "Blob" });
     return URL.createObjectURL(blob);
-  }
-
-  protected override _fixProps(props: Props, stats: Stats) {
-    if (props["size"]) {
-      if (stats.size == null) {
-        delete props["size"];
-      } else {
-        props["size"] = stats.size;
-      }
-    }
-    if (props["etag"]) {
-      if (stats.etag == null) {
-        delete props["etag"];
-      } else {
-        props["etag"] = stats.etag;
-      }
-    }
-    if (!props["accessed"] && stats.accessed) {
-      props["accessed"] = stats.accessed;
-    }
-    if (!props["created"] && stats.created) {
-      props["created"] = stats.created;
-    }
-    if (!props["modified"] && stats.modified) {
-      props["modified"] = stats.modified;
-    }
   }
 }

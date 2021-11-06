@@ -1,12 +1,5 @@
 import { Converter, Data, isBlob, StringData } from "univ-conv";
-import {
-  AbstractFile,
-  ErrorLike,
-  NotFoundError,
-  OpenOptions,
-  Stats,
-  WriteOptions,
-} from "univ-fs";
+import { AbstractFile, OpenOptions, Stats, WriteOptions } from "univ-fs";
 import { CONTENT_STORE } from ".";
 import { IdbFileSystem } from "./IdbFileSystem";
 
@@ -100,21 +93,19 @@ export class IdbFile extends AbstractFile {
     return data;
   }
 
-  protected async _save(data: Data, options: WriteOptions): Promise<void> {
+  protected async _save(
+    data: Data,
+    stats: Stats | undefined,
+    options: WriteOptions
+  ): Promise<void> {
     const converter = new Converter(options);
     const idbFS = this.idbFS;
     const path = this.path;
     const db = await idbFS._open();
 
     let head: Data | undefined;
-    if (options.append) {
-      try {
-        head = await this._load(options);
-      } catch (e: unknown) {
-        if ((e as ErrorLike).name !== NotFoundError.name) {
-          throw e;
-        }
-      }
+    if (options.append && stats) {
+      head = await this._load(options);
     }
 
     let content: Blob | ArrayBuffer | string;
@@ -144,12 +135,10 @@ export class IdbFile extends AbstractFile {
         () => {
           void (async () => {
             try {
-              const size = await converter.getSize(content);
-              await idbFS._patch(
-                path,
-                { modified: Date.now(), size } as Stats,
-                {}
-              );
+              stats = stats ?? { created: Date.now() };
+              stats.size = await converter.getSize(content);
+              stats.modified = Date.now();
+              await idbFS._patch(path, stats, {});
               resolve();
             } catch (e) {
               idbFS._onWriteError(reject, path, e);
