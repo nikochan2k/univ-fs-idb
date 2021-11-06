@@ -276,6 +276,20 @@ export class IdbFileSystem extends AbstractFileSystem {
     });
   }
 
+  public async _toURL(path: string, options?: URLOptions): Promise<string> {
+    options = { urlType: "GET", ...options };
+    if (options.urlType !== "GET") {
+      throw createError({
+        name: NotSupportedError.name,
+        repository: this.repository,
+        path,
+        e: { message: `"${options.urlType}" is not supported` }, // eslint-disable-line
+      });
+    }
+    const blob = await this.read(path, { type: "Blob" });
+    return URL.createObjectURL(blob);
+  }
+
   public dispose() {
     if (this.db == null) {
       return;
@@ -304,19 +318,5 @@ export class IdbFileSystem extends AbstractFileSystem {
 
   public async getFile(path: string): Promise<File> {
     return Promise.resolve(new IdbFile(this, path));
-  }
-
-  public async toURL(path: string, options?: URLOptions): Promise<string> {
-    options = { urlType: "GET", ...options };
-    if (options.urlType !== "GET") {
-      throw createError({
-        name: NotSupportedError.name,
-        repository: this.repository,
-        path,
-        e: { message: `"${options.urlType}" is not supported` }, // eslint-disable-line
-      });
-    }
-    const blob = await this.read(path, { type: "Blob" });
-    return URL.createObjectURL(blob);
   }
 }
