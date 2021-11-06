@@ -14,14 +14,11 @@ import {
   PatchOptions,
   Props,
   Stats,
-  URLType,
+  URLOptions,
 } from "univ-fs";
 import { IdbDirectory } from "./IdbDirectory";
 import { IdbFile } from "./IdbFile";
 
-export interface IdbFileSystemOptions extends FileSystemOptions {
-  logicalDelete?: boolean;
-}
 type VoidType = (value: void | PromiseLike<void>) => void;
 
 export const TEST_STORE = "univ-fs-test";
@@ -36,8 +33,8 @@ export class IdbFileSystem extends AbstractFileSystem {
   public supportsArrayBuffer: boolean | undefined;
   public supportsBlob: boolean | undefined;
 
-  constructor(dbName: string, private idbOptions?: IdbFileSystemOptions) {
-    super(dbName, idbOptions);
+  constructor(dbName: string, options?: FileSystemOptions) {
+    super(dbName, options);
   }
 
   public async _getEntry(path: string): Promise<Stats> {
@@ -237,30 +234,20 @@ export class IdbFileSystem extends AbstractFileSystem {
   }
 
   public async _rm(path: string): Promise<void> {
-    if (this.idbOptions?.logicalDelete) {
-      try {
-        await this._patch(path, { deleted: Date.now() }, {});
-      } catch (e: unknown) {
-        if ((e as ErrorLike).name !== NotFoundError.name) {
-          throw e;
-        }
-      }
-    } else {
-      const db = await this._open();
-      await new Promise<void>((resolve, reject) => {
-        const entryStore = this._getObjectStore(
-          db,
-          ENTRY_STORE,
-          "readwrite",
-          resolve,
-          (ev) => this._onWriteError(reject, path, ev),
-          (ev) => this._onAbort(reject, path, ev)
-        );
-        const range = IDBKeyRange.only(path);
-        const request = entryStore.delete(range);
-        request.onerror = (ev) => this._onWriteError(reject, path, ev);
-      });
-    }
+    const db = await this._open();
+    await new Promise<void>((resolve, reject) => {
+      const entryStore = this._getObjectStore(
+        db,
+        ENTRY_STORE,
+        "readwrite",
+        resolve,
+        (ev) => this._onWriteError(reject, path, ev),
+        (ev) => this._onAbort(reject, path, ev)
+      );
+      const range = IDBKeyRange.only(path);
+      const request = entryStore.delete(range);
+      request.onerror = (ev) => this._onWriteError(reject, path, ev);
+    });
   }
 
   public dispose() {
@@ -293,13 +280,14 @@ export class IdbFileSystem extends AbstractFileSystem {
     return Promise.resolve(new IdbFile(this, path));
   }
 
-  public async toURL(path: string, urlType: URLType = "GET"): Promise<string> {
-    if (urlType !== "GET") {
+  public async toURL(path: string, options?: URLOptions): Promise<string> {
+    options = { urlType: "GET", ...options };
+    if (options.urlType !== "GET") {
       throw createError({
         name: NotSupportedError.name,
         repository: this.repository,
         path,
-        e: { message: `"${urlType}" is not supported` },
+        e: { message: `"${options.urlType}" is not supported` }, // eslint-disable-line
       });
     }
     const blob = await this.read(path, { type: "Blob" });
