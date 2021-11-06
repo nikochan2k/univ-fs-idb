@@ -293,4 +293,30 @@ export class IdbFileSystem extends AbstractFileSystem {
     const blob = await this.read(path, { type: "Blob" });
     return URL.createObjectURL(blob);
   }
+
+  protected override _fixProps(props: Props, stats: Stats) {
+    if (props["size"]) {
+      if (stats.size == null) {
+        delete props["size"];
+      } else {
+        props["size"] = stats.size;
+      }
+    }
+    if (props["etag"]) {
+      if (stats.etag == null) {
+        delete props["etag"];
+      } else {
+        props["etag"] = stats.etag;
+      }
+    }
+    if (!props["accessed"] && stats.accessed) {
+      props["accessed"] = stats.accessed;
+    }
+    if (!props["created"] && stats.created) {
+      props["created"] = stats.created;
+    }
+    if (!props["modified"] && stats.modified) {
+      props["modified"] = stats.modified;
+    }
+  }
 }
