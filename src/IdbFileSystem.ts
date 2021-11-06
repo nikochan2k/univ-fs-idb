@@ -63,6 +63,10 @@ export class IdbFileSystem extends AbstractFileSystem {
     }
   }
 
+  public async _getDirectory(path: string): Promise<Directory> {
+    return Promise.resolve(new IdbDirectory(this, path));
+  }
+
   public async _getEntry(path: string): Promise<Stats> {
     const db = await this._open();
     return new Promise<Stats>((resolve, reject) => {
@@ -84,6 +88,10 @@ export class IdbFileSystem extends AbstractFileSystem {
       const req = entryStore.get(range);
       req.onerror = (ev) => this._onReadError(reject, path, ev);
     });
+  }
+
+  public async _getFile(path: string): Promise<File> {
+    return Promise.resolve(new IdbFile(this, path));
   }
 
   public _getObjectStore(
@@ -310,13 +318,5 @@ export class IdbFileSystem extends AbstractFileSystem {
       path,
       e: (error || e) as ErrorLike,
     });
-  }
-
-  public async getDirectory(path: string): Promise<Directory> {
-    return Promise.resolve(new IdbDirectory(this, path));
-  }
-
-  public async getFile(path: string): Promise<File> {
-    return Promise.resolve(new IdbFile(this, path));
   }
 }
