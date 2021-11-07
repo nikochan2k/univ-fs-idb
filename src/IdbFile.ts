@@ -44,11 +44,10 @@ export class IdbFile extends AbstractFile {
           if (result != null) {
             if (isBlob(result)) {
               idbFS
-                ._patch(
-                  path,
-                  { accessed: Date.now(), size: result.size } as Stats,
-                  {}
-                )
+                ._putEntry(path, {
+                  accessed: Date.now(),
+                  size: result.size,
+                } as Stats)
                 .catch((e) => {
                   console.warn(e);
                 });
@@ -67,11 +66,10 @@ export class IdbFile extends AbstractFile {
                 .toBlob(data)
                 .then((blob) => {
                   idbFS
-                    ._patch(
-                      path,
-                      { accessed: Date.now(), size: blob.size } as Stats,
-                      {}
-                    )
+                    ._putEntry(path, {
+                      accessed: Date.now(),
+                      size: blob.size,
+                    } as Stats)
                     .catch((e) => {
                       console.warn(e);
                     });
