@@ -1,4 +1,4 @@
-import { IdbFileSystem } from "..";
+import { IdbFileSystem } from "../IdbFileSystem";
 
 export const fs = new IdbFileSystem("/isomorphic-fs-test");
 
