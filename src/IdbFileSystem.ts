@@ -27,14 +27,18 @@ export const CONTENT_STORE = "univ-fs-contents";
 
 const indexedDB: IDBFactory = window.indexedDB || (window as any).mozIndexedDB; // eslint-disable-line
 
+export interface IdbFileSystemOptions extends FileSystemOptions {
+  noatime?: boolean;
+}
+
 export class IdbFileSystem extends AbstractFileSystem {
   private db?: IDBDatabase;
 
   public supportsArrayBuffer: boolean | undefined;
   public supportsBlob: boolean | undefined;
 
-  constructor(dbName: string, options?: FileSystemOptions) {
-    super(dbName, options);
+  constructor(dbName: string, public idbOptions?: IdbFileSystemOptions) {
+    super(dbName, idbOptions);
   }
 
   public override _fixProps(props: Props, stats: Stats) {

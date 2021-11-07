@@ -32,6 +32,7 @@ export class IdbFile extends AbstractFile {
     const converter = new Converter(options);
     const idbFS = this.idbFS;
     const path = this.path;
+    const noatime = !!idbFS.idbOptions?.noatime;
 
     const db = await idbFS._open();
     const data = await new Promise<Blob>((resolve, reject) => {
@@ -43,15 +44,7 @@ export class IdbFile extends AbstractFile {
           const result = request.result as Data;
           if (result != null) {
             if (isBlob(result)) {
-              idbFS
-                ._putEntry(path, {
-                  ...stats,
-                  accessed: Date.now(),
-                  size: result.size,
-                } as Stats)
-                .catch((e) => {
-                  console.warn(e);
-                });
+              noatime && this._updateAccessed(path, stats, result.size);
               resolve(result);
             } else {
               let data: Data;
@@ -66,15 +59,7 @@ export class IdbFile extends AbstractFile {
               converter
                 .toBlob(data)
                 .then((blob) => {
-                  idbFS
-                    ._putEntry(path, {
-                      ...stats,
-                      accessed: Date.now(),
-                      size: blob.size,
-                    } as Stats)
-                    .catch((e) => {
-                      console.warn(e);
-                    });
+                  noatime && this._updateAccessed(path, stats, blob.size);
                   resolve(blob);
                 })
                 .catch((e) => idbFS._onReadError(reject, path, e));
@@ -151,5 +136,17 @@ export class IdbFile extends AbstractFile {
       const contentReq = contentStore.put(content, path);
       contentReq.onerror = (ev) => idbFS._onWriteError(reject, path, ev);
     });
+  }
+
+  private _updateAccessed(path: string, stats: Stats, size: number) {
+    this.idbFS
+      ._putEntry(path, {
+        ...stats,
+        accessed: Date.now(),
+        size,
+      })
+      .catch((e) => {
+        console.warn(e);
+      });
   }
 }
