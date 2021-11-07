@@ -28,7 +28,7 @@ export class IdbFile extends AbstractFile {
     });
   }
 
-  protected async _load(options: OpenOptions): Promise<Data> {
+  protected async _load(stats: Stats, options: OpenOptions): Promise<Data> {
     const converter = new Converter(options);
     const idbFS = this.idbFS;
     const path = this.path;
@@ -45,6 +45,7 @@ export class IdbFile extends AbstractFile {
             if (isBlob(result)) {
               idbFS
                 ._putEntry(path, {
+                  ...stats,
                   accessed: Date.now(),
                   size: result.size,
                 } as Stats)
@@ -67,6 +68,7 @@ export class IdbFile extends AbstractFile {
                 .then((blob) => {
                   idbFS
                     ._putEntry(path, {
+                      ...stats,
                       accessed: Date.now(),
                       size: blob.size,
                     } as Stats)
@@ -103,7 +105,7 @@ export class IdbFile extends AbstractFile {
 
     let head: Data | undefined;
     if (options.append && stats) {
-      head = await this._load(options);
+      head = await this._load(stats, options);
     }
 
     let content: Blob | ArrayBuffer | string;

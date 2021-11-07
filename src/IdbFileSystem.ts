@@ -38,27 +38,27 @@ export class IdbFileSystem extends AbstractFileSystem {
   }
 
   public override _fixProps(props: Props, stats: Stats) {
-    if (props["size"]) {
+    if (typeof props["size"] !== "number") {
       if (stats.size == null) {
         delete props["size"];
       } else {
         props["size"] = stats.size;
       }
     }
-    if (props["etag"]) {
-      if (stats.etag == null) {
+    if (typeof props["etag"] !== "string") {
+      if (!stats.etag) {
         delete props["etag"];
       } else {
         props["etag"] = stats.etag;
       }
     }
-    if (!props["accessed"] && stats.accessed) {
+    if (typeof props["accessed"] !== "number" && stats.accessed) {
       props["accessed"] = stats.accessed;
     }
-    if (!props["created"] && stats.created) {
+    if (typeof props["created"] !== "number" && stats.created) {
       props["created"] = stats.created;
     }
-    if (!props["modified"] && stats.modified) {
+    if (typeof props["modified"] !== "number" && stats.modified) {
       props["modified"] = stats.modified;
     }
   }
