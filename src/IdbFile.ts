@@ -1,5 +1,5 @@
-import { Converter, Data, isBlob, StringData } from "univ-conv";
-import { AbstractFile, OpenOptions, Stats, WriteOptions } from "univ-fs";
+import { blobConverter, Data } from "univ-conv";
+import { AbstractFile, ReadOptions, Stats, WriteOptions } from "univ-fs";
 import { CONTENT_STORE } from ".";
 import { IdbFileSystem } from "./IdbFileSystem";
 
@@ -28,8 +28,8 @@ export class IdbFile extends AbstractFile {
     });
   }
 
-  protected async _load(stats: Stats, options: OpenOptions): Promise<Data> {
-    const converter = new Converter(options);
+  protected async _load(stats: Stats, options: ReadOptions): Promise<Data> {
+    const converter = this._getConverter();
     const idbFS = this.idbFS;
     const path = this.path;
     const noatime = !!idbFS.idbOptions?.noatime;
@@ -43,21 +43,12 @@ export class IdbFile extends AbstractFile {
         () => {
           const result = request.result as Data;
           if (result != null) {
-            if (isBlob(result)) {
+            if (blobConverter().typeEquals(result)) {
               noatime && this._updateAccessed(path, stats, result.size);
               resolve(result);
             } else {
-              let data: Data;
-              if (typeof result === "string") {
-                data = {
-                  encoding: "BinaryString",
-                  value: result,
-                } as StringData;
-              } else {
-                data = result;
-              }
               converter
-                .toBlob(data)
+                .toBlob(result, options)
                 .then((blob) => {
                   noatime && this._updateAccessed(path, stats, blob.size);
                   resolve(blob);
@@ -83,7 +74,7 @@ export class IdbFile extends AbstractFile {
     stats: Stats | undefined,
     options: WriteOptions
   ): Promise<void> {
-    const converter = new Converter(options);
+    const converter = this._getConverter();
     const idbFS = this.idbFS;
     const path = this.path;
     const db = await idbFS._open();
@@ -95,20 +86,22 @@ export class IdbFile extends AbstractFile {
 
     let content: Blob | ArrayBuffer | string;
     if (idbFS.supportsBlob) {
-      content = await converter.toBlob(data);
+      content = await converter.toBlob(data, options);
       if (head) {
-        content = new Blob([await converter.toBlob(head), content]);
+        content = new Blob([await converter.toBlob(head, options), content]);
       }
     } else if (idbFS.supportsArrayBuffer) {
-      content = await converter.toArrayBuffer(data);
+      content = await converter.toArrayBuffer(data, options);
       if (head) {
-        content = new Blob([await converter.toArrayBuffer(head), content]);
+        content = new Blob([
+          await converter.toArrayBuffer(head, options),
+          content,
+        ]);
       }
     } else {
-      const bs = await converter.toBinaryString(data);
-      content = bs.value;
+      content = await converter.toBinary(data, options);
       if (head) {
-        content = (await converter.toBinaryString(head)).value + content;
+        content = (await converter.toBinary(head, options)) + content;
       }
     }
 
@@ -121,7 +114,7 @@ export class IdbFile extends AbstractFile {
           void (async () => {
             try {
               stats = stats ?? { created: Date.now() };
-              stats.size = await converter.getSize(content);
+              stats.size = await converter.getSize(content, options);
               stats.modified = Date.now();
               await idbFS._patch(path, stats, {});
               resolve();

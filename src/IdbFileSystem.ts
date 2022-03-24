@@ -312,7 +312,7 @@ export class IdbFileSystem extends AbstractFileSystem {
         e: { message: `"${path}" is not a directory` },
       });
     }
-    const blob = await this.read(path, { type: "Blob" });
+    const blob = await this.read(path, "blob");
     return URL.createObjectURL(blob);
   }
 
