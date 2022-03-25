@@ -14,6 +14,7 @@ import {
   PatchOptions,
   Props,
   Stats,
+  TimeoutError,
   TypeMismatchError,
   URLOptions,
 } from "univ-fs";
@@ -33,8 +34,6 @@ export interface IdbFileSystemOptions extends FileSystemOptions {
 }
 
 export class IdbFileSystem extends AbstractFileSystem {
-  private db?: IDBDatabase;
-
   public supportsArrayBuffer: boolean | undefined;
   public supportsBlob: boolean | undefined;
 
@@ -74,25 +73,29 @@ export class IdbFileSystem extends AbstractFileSystem {
 
   public async _getEntry(path: string): Promise<Stats> {
     const db = await this._open();
-    return new Promise<Stats>((resolve, reject) => {
-      const entryStore = this._getObjectStore(
-        db,
-        ENTRY_STORE,
-        "readonly",
-        () => {
-          if (req.result != null) {
-            resolve(req.result as Stats);
-          } else {
-            this._onNotFound(reject, path, undefined);
-          }
-        },
-        (ev) => this._onReadError(reject, path, ev),
-        (ev) => this._onAbort(reject, path, ev)
-      );
-      const range = IDBKeyRange.only(path);
-      const req = entryStore.get(range);
-      req.onerror = (ev) => this._onReadError(reject, path, ev);
-    });
+    try {
+      return new Promise<Stats>((resolve, reject) => {
+        const entryStore = this._getObjectStore(
+          db,
+          ENTRY_STORE,
+          "readonly",
+          () => {
+            if (req.result != null) {
+              resolve(req.result as Stats);
+            } else {
+              this._onNotFound(reject, path, undefined);
+            }
+          },
+          (ev) => this._onReadError(reject, path, ev),
+          (ev) => this._onAbort(reject, path, ev)
+        );
+        const range = IDBKeyRange.only(path);
+        const req = entryStore.get(range);
+        req.onerror = (ev) => this._onReadError(reject, path, ev);
+      });
+    } finally {
+      db.close();
+    }
   }
 
   public async _getFile(path: string): Promise<File> {
@@ -123,6 +126,10 @@ export class IdbFileSystem extends AbstractFileSystem {
     reject(this.error(path, ev, AbortError.name));
   }
 
+  public _onBlockError(reject: (reason?: any) => void, path: string, ev: any) {
+    reject(this.error(path, ev, TimeoutError.name));
+  }
+
   public _onNotFound(reject: (reason?: any) => void, path: string, ev: any) {
     reject(this.error(path, ev, NotFoundError.name));
   }
@@ -137,11 +144,7 @@ export class IdbFileSystem extends AbstractFileSystem {
 
   /* eslint-enable */
   public async _open(): Promise<IDBDatabase> {
-    if (this.db) {
-      return this.db;
-    }
-
-    this.db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open(this.repository);
       request.onupgradeneeded = () => {
         const db = request.result;
@@ -228,24 +231,19 @@ export class IdbFileSystem extends AbstractFileSystem {
             });
           }
         }
-        db.onclose = () => {
-          delete this.db;
-        };
         db.onerror = (ev) => {
           console.warn(this.error("", ev, OperationError.name));
-          delete this.db;
         };
         db.onabort = (ev) => {
           console.warn(this.error("", ev, AbortError.name));
-          delete this.db;
         };
         resolve(db);
       };
       request.onerror = (ev) => this._onReadError(reject, "", ev);
-      request.onblocked = (ev) => this._onReadError(reject, "", ev);
+      request.onblocked = (ev) => this._onBlockError(reject, "", ev);
     });
 
-    return this.db;
+    return db;
   }
 
   public async _patch(
@@ -258,35 +256,43 @@ export class IdbFileSystem extends AbstractFileSystem {
 
   public async _putEntry(path: string, props: Props): Promise<void> {
     const db = await this._open();
-    return new Promise<void>((resolve, reject) => {
-      const entryStore = this._getObjectStore(
-        db,
-        ENTRY_STORE,
-        "readwrite",
-        resolve,
-        (ev) => this._onWriteError(reject, path, ev),
-        (ev) => this._onAbort(reject, path, ev)
-      );
-      const req = entryStore.put(props, path);
-      req.onerror = (ev) => this._onWriteError(reject, path, ev);
-    });
+    try {
+      return new Promise<void>((resolve, reject) => {
+        const entryStore = this._getObjectStore(
+          db,
+          ENTRY_STORE,
+          "readwrite",
+          resolve,
+          (ev) => this._onWriteError(reject, path, ev),
+          (ev) => this._onAbort(reject, path, ev)
+        );
+        const req = entryStore.put(props, path);
+        req.onerror = (ev) => this._onWriteError(reject, path, ev);
+      });
+    } finally {
+      db.close();
+    }
   }
 
   public async _rm(path: string): Promise<void> {
     const db = await this._open();
-    await new Promise<void>((resolve, reject) => {
-      const entryStore = this._getObjectStore(
-        db,
-        ENTRY_STORE,
-        "readwrite",
-        resolve,
-        (ev) => this._onWriteError(reject, path, ev),
-        (ev) => this._onAbort(reject, path, ev)
-      );
-      const range = IDBKeyRange.only(path);
-      const request = entryStore.delete(range);
-      request.onerror = (ev) => this._onWriteError(reject, path, ev);
-    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const entryStore = this._getObjectStore(
+          db,
+          ENTRY_STORE,
+          "readwrite",
+          resolve,
+          (ev) => this._onWriteError(reject, path, ev),
+          (ev) => this._onAbort(reject, path, ev)
+        );
+        const range = IDBKeyRange.only(path);
+        const request = entryStore.delete(range);
+        request.onerror = (ev) => this._onWriteError(reject, path, ev);
+      });
+    } finally {
+      db.close();
+    }
   }
 
   public async _toURL(
@@ -314,14 +320,6 @@ export class IdbFileSystem extends AbstractFileSystem {
     }
     const blob = await this.read(path, "blob");
     return URL.createObjectURL(blob);
-  }
-
-  public dispose() {
-    if (this.db == null) {
-      return;
-    }
-    this.db.close();
-    delete this.db;
   }
 
   public error(
