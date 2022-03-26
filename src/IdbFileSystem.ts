@@ -335,4 +335,8 @@ export class IdbFileSystem extends AbstractFileSystem {
       e: (error || e) as ErrorLike,
     });
   }
+
+  public supportDirectory(): boolean {
+    return true;
+  }
 }
