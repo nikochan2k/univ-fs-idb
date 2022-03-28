@@ -1,4 +1,4 @@
-import { AbstractDirectory, TypeMismatchError } from "univ-fs";
+import { AbstractDirectory, Item, TypeMismatchError } from "univ-fs";
 import { ENTRY_STORE, IdbFileSystem } from "./IdbFileSystem";
 
 const DIR_OPEN_BOUND = String.fromCharCode("/".charCodeAt(0) + 1);
@@ -30,12 +30,12 @@ export class IdbDirectory extends AbstractDirectory {
     super(idbFS, path);
   }
 
-  public async _list(): Promise<string[]> {
+  public async _list(): Promise<Item[]> {
     const path = this.path;
     const idbFS = this.idbFS;
     const stats = await idbFS._getEntry(path);
     if (stats.size != null) {
-      throw idbFS.error(
+      throw idbFS._error(
         path,
         `"${path}" is not directory`,
         TypeMismatchError.name
@@ -43,13 +43,13 @@ export class IdbDirectory extends AbstractDirectory {
     }
     const db = await idbFS._open();
     try {
-      return new Promise<string[]>((resolve, reject) => {
-        const paths: string[] = [];
+      return new Promise<Item[]>((resolve, reject) => {
+        const items: Item[] = [];
         const entryStore = idbFS._getObjectStore(
           db,
           ENTRY_STORE,
           "readonly",
-          () => resolve(paths),
+          () => resolve(items),
           (ev) => idbFS._onReadError(reject, path, ev),
           (ev) => idbFS._onAbort(reject, path, ev)
         );
@@ -71,7 +71,7 @@ export class IdbDirectory extends AbstractDirectory {
                 path !== key && // remove root dir
                 slashCount === countSlash(key)
               ) {
-                paths.push(key);
+                items.push({ path: key });
               }
             }
           };
@@ -87,7 +87,7 @@ export class IdbDirectory extends AbstractDirectory {
                 path !== key && // remove root dir
                 slashCount === countSlash(key)
               ) {
-                paths.push(key);
+                items.push({ path: key });
               }
               cursor.continue();
             }

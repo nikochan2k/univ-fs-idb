@@ -41,6 +41,20 @@ export class IdbFileSystem extends AbstractFileSystem {
     super(dbName, idbOptions);
   }
 
+  public _error(
+    path: string,
+    e?: any, // eslint-disable-line
+    name?: string
+  ) {
+    const error = e?.target?.error; // eslint-disable-line
+    return createError({
+      name: name || OperationError.name,
+      repository: this.repository,
+      path,
+      e: (error || e) as ErrorLike,
+    });
+  }
+
   public override _fixProps(props: Props, stats: Stats) {
     if (typeof props["size"] !== "number") {
       if (stats.size == null) {
@@ -123,23 +137,23 @@ export class IdbFileSystem extends AbstractFileSystem {
 
   /* eslint-disable */
   public _onAbort(reject: (reason?: any) => void, path: string, ev: any) {
-    reject(this.error(path, ev, AbortError.name));
+    reject(this._error(path, ev, AbortError.name));
   }
 
   public _onBlockError(reject: (reason?: any) => void, path: string, ev: any) {
-    reject(this.error(path, ev, TimeoutError.name));
+    reject(this._error(path, ev, TimeoutError.name));
   }
 
   public _onNotFound(reject: (reason?: any) => void, path: string, ev: any) {
-    reject(this.error(path, ev, NotFoundError.name));
+    reject(this._error(path, ev, NotFoundError.name));
   }
 
   public _onReadError(reject: (reason?: any) => void, path: string, ev: any) {
-    reject(this.error(path, ev, NotReadableError.name));
+    reject(this._error(path, ev, NotReadableError.name));
   }
 
   public _onWriteError(reject: (reason?: any) => void, path: string, ev: any) {
-    reject(this.error(path, ev, NoModificationAllowedError.name));
+    reject(this._error(path, ev, NoModificationAllowedError.name));
   }
 
   /* eslint-enable */
@@ -232,10 +246,10 @@ export class IdbFileSystem extends AbstractFileSystem {
           }
         }
         db.onerror = (ev) => {
-          console.warn(this.error("", ev, OperationError.name));
+          console.warn(this._error("", ev, OperationError.name));
         };
         db.onabort = (ev) => {
-          console.warn(this.error("", ev, AbortError.name));
+          console.warn(this._error("", ev, AbortError.name));
         };
         resolve(db);
       };
@@ -315,25 +329,11 @@ export class IdbFileSystem extends AbstractFileSystem {
         name: TypeMismatchError.name,
         repository,
         path,
-        e: { message: `"${path}" is not a directory` },
+        e: { message: `"${path}" is not a file` },
       });
     }
     const blob = await this.read(path, "blob");
     return URL.createObjectURL(blob);
-  }
-
-  public error(
-    path: string,
-    e?: any, // eslint-disable-line
-    name?: string
-  ) {
-    const error = e?.target?.error; // eslint-disable-line
-    return createError({
-      name: name || OperationError.name,
-      repository: this.repository,
-      path,
-      e: (error || e) as ErrorLike,
-    });
   }
 
   public supportDirectory(): boolean {
