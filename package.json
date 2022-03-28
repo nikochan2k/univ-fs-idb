@@ -1,6 +1,6 @@
 {
   "name": "univ-fs-idb",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "description": "The universal Filesystem for IndexedDB",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
