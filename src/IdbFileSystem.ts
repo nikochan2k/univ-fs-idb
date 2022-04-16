@@ -29,7 +29,7 @@ export const CONTENT_STORE = "univ-fs-contents";
 const indexedDB: IDBFactory = window.indexedDB || (window as any).mozIndexedDB; // eslint-disable-line
 
 export interface IdbFileSystemOptions extends FileSystemOptions {
-  noatime?: boolean;
+  useAccessed?: boolean;
 }
 
 export class IdbFileSystem extends AbstractFileSystem {
@@ -311,7 +311,7 @@ export class IdbFileSystem extends AbstractFileSystem {
   }
 
   public canPatchAccessed(): boolean {
-    return !this.idbOptions?.noatime;
+    return this.idbOptions?.useAccessed ?? false;
   }
 
   public canPatchCreated(): boolean {

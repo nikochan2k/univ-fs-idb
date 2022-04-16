@@ -1,4 +1,4 @@
-import { blobConverter, Data } from "univ-conv";
+import { Data } from "univ-conv";
 import { AbstractFile, ReadOptions, Stats, WriteOptions } from "univ-fs";
 import { CONTENT_STORE } from ".";
 import { IdbFileSystem } from "./IdbFileSystem";
@@ -40,36 +40,32 @@ export class IdbFile extends AbstractFile {
     return false; // TODO
   }
 
-  protected async _load(stats: Stats, options: ReadOptions): Promise<Data> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  protected async _load(stats: Stats, _options: ReadOptions): Promise<Data> {
     const idbFS = this.idbFS;
     const db = await idbFS._open();
     try {
-      const data = await new Promise<Blob>((resolve, reject) => {
+      const data = await new Promise<Data>((resolve, reject) => {
         const path = this.path;
         const contentStore = idbFS._getObjectStore(
           db,
           CONTENT_STORE,
           "readonly",
           () => {
-            const result = request.result as Data;
-            if (result != null) {
-              const noatime = !!idbFS.idbOptions?.noatime;
-              if (blobConverter().typeEquals(result)) {
-                noatime && this._updateAccessed(path, stats, result.size);
+            void (async () => {
+              const result = request.result as Data;
+              if (result != null) {
+                if (idbFS.idbOptions?.useAccessed) {
+                  await this.idbFS._putEntry(path, {
+                    ...stats,
+                    accessed: Date.now(),
+                  });
+                }
                 resolve(result);
               } else {
-                const converter = this._getConverter();
-                converter
-                  .toBlob(result, options)
-                  .then((blob) => {
-                    noatime && this._updateAccessed(path, stats, blob.size);
-                    resolve(blob);
-                  })
-                  .catch((e) => idbFS._onReadError(reject, path, e));
+                idbFS._onNotFound(reject, path, undefined);
               }
-            } else {
-              idbFS._onNotFound(reject, path, undefined);
-            }
+            })();
           },
           (ev) => idbFS._onReadError(reject, path, ev),
           (ev) => idbFS._onAbort(reject, path, ev)
@@ -130,8 +126,8 @@ export class IdbFile extends AbstractFile {
               try {
                 stats = stats ?? { created: Date.now() };
                 stats.size = await converter.getSize(content, options);
-                stats.modified = Date.now();
-                await idbFS._patch(path, stats, stats, {});
+                stats.accessed = stats.modified = Date.now();
+                await idbFS._patch(path, {}, stats, options);
                 resolve();
               } catch (e) {
                 idbFS._onWriteError(reject, path, e);
@@ -147,17 +143,5 @@ export class IdbFile extends AbstractFile {
     } finally {
       db.close();
     }
-  }
-
-  private _updateAccessed(path: string, stats: Stats, size: number) {
-    this.idbFS
-      ._putEntry(path, {
-        ...stats,
-        accessed: Date.now(),
-        size,
-      })
-      .catch((e) => {
-        console.warn(e);
-      });
   }
 }
