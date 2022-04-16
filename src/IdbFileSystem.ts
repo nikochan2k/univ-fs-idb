@@ -54,7 +54,7 @@ export class IdbFileSystem extends AbstractFileSystem {
     });
   }
 
-  public async _getDirectory(path: string): Promise<Directory> {
+  public _getDirectory(path: string): Promise<Directory> {
     return Promise.resolve(new IdbDirectory(this, path));
   }
 
@@ -85,7 +85,7 @@ export class IdbFileSystem extends AbstractFileSystem {
     }
   }
 
-  public async _getFile(path: string): Promise<File> {
+  public _getFile(path: string): Promise<File> {
     return Promise.resolve(new IdbFile(this, path));
   }
 
