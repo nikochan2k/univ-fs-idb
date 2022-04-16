@@ -311,7 +311,7 @@ export class IdbFileSystem extends AbstractFileSystem {
   }
 
   public canPatchAccessed(): boolean {
-    return true;
+    return !this.idbOptions?.noatime;
   }
 
   public canPatchCreated(): boolean {
