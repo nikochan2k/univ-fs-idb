@@ -32,6 +32,14 @@ export class IdbFile extends AbstractFile {
     }
   }
 
+  public supportRangeRead(): boolean {
+    return false; // TODO
+  }
+
+  public supportRangeWrite(): boolean {
+    return false; // TODO
+  }
+
   protected async _load(stats: Stats, options: ReadOptions): Promise<Data> {
     const idbFS = this.idbFS;
     const db = await idbFS._open();
@@ -123,7 +131,7 @@ export class IdbFile extends AbstractFile {
                 stats = stats ?? { created: Date.now() };
                 stats.size = await converter.getSize(content, options);
                 stats.modified = Date.now();
-                await idbFS._patch(path, stats, {});
+                await idbFS._patch(path, stats, stats, {});
                 resolve();
               } catch (e) {
                 idbFS._onWriteError(reject, path, e);

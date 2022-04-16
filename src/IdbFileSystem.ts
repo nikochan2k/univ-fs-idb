@@ -12,7 +12,6 @@ import {
   NotSupportedError,
   OperationError,
   PatchOptions,
-  Props,
   Stats,
   TimeoutError,
   TypeMismatchError,
@@ -53,32 +52,6 @@ export class IdbFileSystem extends AbstractFileSystem {
       path,
       e: (error || e) as ErrorLike,
     });
-  }
-
-  public override _fixProps(props: Props, stats: Stats) {
-    if (typeof props["size"] !== "number") {
-      if (stats.size == null) {
-        delete props["size"];
-      } else {
-        props["size"] = stats.size;
-      }
-    }
-    if (typeof props["etag"] !== "string") {
-      if (!stats.etag) {
-        delete props["etag"];
-      } else {
-        props["etag"] = stats.etag;
-      }
-    }
-    if (typeof props["accessed"] !== "number" && stats.accessed) {
-      props["accessed"] = stats.accessed;
-    }
-    if (typeof props["created"] !== "number" && stats.created) {
-      props["created"] = stats.created;
-    }
-    if (typeof props["modified"] !== "number" && stats.modified) {
-      props["modified"] = stats.modified;
-    }
   }
 
   public async _getDirectory(path: string): Promise<Directory> {
@@ -262,13 +235,14 @@ export class IdbFileSystem extends AbstractFileSystem {
 
   public async _patch(
     path: string,
-    props: Props,
+    stats: Stats,
+    props: Stats,
     _options: PatchOptions // eslint-disable-line
   ): Promise<void> {
-    await this._putEntry(path, props);
+    await this._putEntry(path, { ...stats, ...props });
   }
 
-  public async _putEntry(path: string, props: Props): Promise<void> {
+  public async _putEntry(path: string, props: Stats): Promise<void> {
     const db = await this._open();
     try {
       return new Promise<void>((resolve, reject) => {
@@ -334,6 +308,18 @@ export class IdbFileSystem extends AbstractFileSystem {
     }
     const blob = await this.read(path, "blob");
     return URL.createObjectURL(blob);
+  }
+
+  public canPatchAccessed(): boolean {
+    return true;
+  }
+
+  public canPatchCreated(): boolean {
+    return true;
+  }
+
+  public canPatchModified(): boolean {
+    return true;
   }
 
   public supportDirectory(): boolean {
