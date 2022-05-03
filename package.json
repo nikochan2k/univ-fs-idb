@@ -17,12 +17,12 @@
     "indexeddb"
   ],
   "scripts": {
-    "clean": "rimraf ./lib",
+    "clean": "rimraf ./lib ./tsconfig.tsbuildinfo",
     "compile": "tsc",
     "build": "npm-run-all clean compile",
     "npm-version": "npm version patch",
     "npm-publish": "npm publish",
-    "release": "npm-run-all clean compile npm-version npm-publish",
+    "release": "npm-run-all build npm-version npm-publish",
     "web-clean": "rimraf ./dist",
     "webpack": "webpack",
     "web-compile": "npm-run-all compile webpack",
