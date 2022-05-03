@@ -24,12 +24,13 @@
     "npm-publish": "npm publish",
     "release": "npm-run-all clean compile npm-version npm-publish",
     "web-clean": "rimraf ./dist",
-    "web-compile": "webpack",
-    "web-build": "npm-run-all web-clean web-compile",
-    "web-compile-test": "webpack --config webpack.config.test.js",
-    "web-build-test": "npm-run-all web-clean web-compile-test",
+    "webpack": "webpack",
+    "web-compile": "npm-run-all compile webpack",
+    "web-build": "npm-run-all clean web-clean web-compile",
+    "webpack-test": "webpack --config webpack.config.test.js",
+    "web-compile-test": "npm-run-all compile webpack-test",
     "karma": "karma start",
-    "web-test": "npm-run-all web-build-test karma"
+    "web-test": "npm-run-all web-compile-test karma"
   },
   "devDependencies": {
     "@types/jasmine": "^4.0.3",
@@ -46,7 +47,6 @@
     "npm-run-all": "^4.1.5",
     "prettier": "^2.6.2",
     "rimraf": "^3.0.2",
-    "ts-loader": "^9.3.0",
     "typescript": "^4.6.4",
     "webpack": "^5.72.0",
     "webpack-cli": "^4.9.2"
