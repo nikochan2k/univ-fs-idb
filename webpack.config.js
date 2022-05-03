@@ -4,7 +4,7 @@ module.exports = {
     index: "./src/index.ts",
   },
   output: {
-    filename: "univ-fs-s3.js",
+    filename: "univ-fs-idb.js",
     path: __dirname + "/dist",
   },
   module: {

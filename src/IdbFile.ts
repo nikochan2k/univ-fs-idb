@@ -32,6 +32,10 @@ export class IdbFile extends AbstractFile {
     }
   }
 
+  public supportAppend(): boolean {
+    return false;
+  }
+
   public supportRangeRead(): boolean {
     return false; // TODO
   }
