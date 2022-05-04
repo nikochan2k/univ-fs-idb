@@ -23,7 +23,6 @@
     "npm-version": "npm version patch",
     "npm-publish": "npm publish",
     "release": "npm-run-all build npm-version npm-publish",
-    "web-clean": "rimraf ./dist",
     "webpack": "webpack",
     "web-compile": "npm-run-all compile webpack",
     "web-build": "npm-run-all clean web-clean web-compile",
