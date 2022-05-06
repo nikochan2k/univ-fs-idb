@@ -8,44 +8,8 @@ export class IdbFile extends AbstractFile {
     super(idbFS, path);
   }
 
-  public async _rm(): Promise<void> {
-    const idbFS = this.idbFS;
-    const path = this.path;
-    await idbFS._rm(path);
-    const db = await idbFS._open();
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const contentStore = idbFS._getObjectStore(
-          db,
-          CONTENT_STORE,
-          "readwrite",
-          resolve,
-          (ev) => idbFS._onWriteError(reject, path, ev),
-          (ev) => idbFS._onAbort(reject, path, ev)
-        );
-        const range = IDBKeyRange.only(path);
-        const request = contentStore.delete(range);
-        request.onerror = (ev) => idbFS._onWriteError(reject, path, ev);
-      });
-    } finally {
-      db.close();
-    }
-  }
-
-  public supportAppend(): boolean {
-    return false;
-  }
-
-  public supportRangeRead(): boolean {
-    return false; // TODO
-  }
-
-  public supportRangeWrite(): boolean {
-    return false; // TODO
-  }
-
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  protected async _load(stats: Stats, _options: ReadOptions): Promise<Data> {
+  public async _doRead(stats: Stats, _options: ReadOptions): Promise<Data> {
     const idbFS = this.idbFS;
     const db = await idbFS._open();
     try {
@@ -84,14 +48,38 @@ export class IdbFile extends AbstractFile {
     }
   }
 
-  protected async _save(
+  public async _doRm(): Promise<void> {
+    const idbFS = this.idbFS;
+    const path = this.path;
+    await idbFS._doRm(path);
+    const db = await idbFS._open();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const contentStore = idbFS._getObjectStore(
+          db,
+          CONTENT_STORE,
+          "readwrite",
+          resolve,
+          (ev) => idbFS._onWriteError(reject, path, ev),
+          (ev) => idbFS._onAbort(reject, path, ev)
+        );
+        const range = IDBKeyRange.only(path);
+        const request = contentStore.delete(range);
+        request.onerror = (ev) => idbFS._onWriteError(reject, path, ev);
+      });
+    } finally {
+      db.close();
+    }
+  }
+
+  public async _doWrite(
     data: Data,
     stats: Stats | undefined,
     options: WriteOptions
   ): Promise<void> {
     let head: Data | undefined;
     if (options.append && stats) {
-      head = await this._load(stats, options);
+      head = await this._doRead(stats, options);
     }
 
     const idbFS = this.idbFS;
@@ -131,7 +119,7 @@ export class IdbFile extends AbstractFile {
                 stats = stats ?? { created: Date.now() };
                 stats.size = await converter.getSize(content, options);
                 stats.accessed = stats.modified = Date.now();
-                await idbFS._patch(path, {}, stats, options);
+                await idbFS._doPatch(path, {}, stats, options);
                 resolve();
               } catch (e) {
                 idbFS._onWriteError(reject, path, e);
@@ -147,5 +135,17 @@ export class IdbFile extends AbstractFile {
     } finally {
       db.close();
     }
+  }
+
+  public supportAppend(): boolean {
+    return false;
+  }
+
+  public supportRangeRead(): boolean {
+    return false; // TODO
+  }
+
+  public supportRangeWrite(): boolean {
+    return false; // TODO
   }
 }

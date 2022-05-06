@@ -30,7 +30,7 @@ export class IdbDirectory extends AbstractDirectory {
     super(idbFS, path);
   }
 
-  public async _list(): Promise<Item[]> {
+  public async _doList(): Promise<Item[]> {
     const path = this.path;
     const idbFS = this.idbFS;
     const stats = await idbFS._getEntry(path);
@@ -100,7 +100,7 @@ export class IdbDirectory extends AbstractDirectory {
     }
   }
 
-  public async _mkcol(): Promise<void> {
+  public async _doMkcol(): Promise<void> {
     const now = Date.now();
     await this.idbFS._putEntry(this.path, {
       created: now,
@@ -108,7 +108,7 @@ export class IdbDirectory extends AbstractDirectory {
     });
   }
 
-  public async _rmdir(): Promise<void> {
-    await this.idbFS._rm(this.path);
+  public async _doRmdir(): Promise<void> {
+    await this.idbFS._doRm(this.path);
   }
 }
