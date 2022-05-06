@@ -12,40 +12,28 @@ export class IdbFile extends AbstractFile {
   public async _doRead(stats: Stats, _options: ReadOptions): Promise<Data> {
     const idbFS = this.idbFS;
     const db = await idbFS._open();
-    try {
-      const data = await new Promise<Data>((resolve, reject) => {
-        const path = this.path;
-        const contentStore = idbFS._getObjectStore(
-          db,
-          CONTENT_STORE,
-          "readonly",
-          () => {
-            void (async () => {
-              const result = request.result as Data;
-              if (result != null) {
-                if (idbFS.idbOptions?.useAccessed) {
-                  await this.idbFS._putEntry(path, {
-                    ...stats,
-                    accessed: Date.now(),
-                  });
-                }
-                resolve(result);
-              } else {
-                idbFS._onNotFound(reject, path, undefined);
-              }
-            })();
-          },
-          (ev) => idbFS._onReadError(reject, path, ev),
-          (ev) => idbFS._onAbort(reject, path, ev)
-        );
-        const range = IDBKeyRange.only(path);
-        const request = contentStore.get(range);
-        request.onerror = (ev) => idbFS._onReadError(reject, path, ev);
-      });
-      return data;
-    } finally {
-      db.close();
-    }
+    const data = await new Promise<Data>((resolve, reject) => {
+      const path = this.path;
+      const contentStore = idbFS._getObjectStore(db, CONTENT_STORE, "readonly");
+      const range = IDBKeyRange.only(path);
+      const request = contentStore.get(range);
+      request.onsuccess = async () => {
+        const result = request.result as Data;
+        if (result != null) {
+          if (idbFS.idbOptions?.useAccessed) {
+            await this.idbFS._putEntry(path, {
+              ...stats,
+              accessed: Date.now(),
+            });
+          }
+          resolve(result);
+        } else {
+          idbFS._onNotFound(reject, path, undefined);
+        }
+      };
+      request.onerror = (ev) => idbFS._onReadError(reject, path, ev);
+    });
+    return data;
   }
 
   public async _doRm(): Promise<void> {
@@ -53,23 +41,17 @@ export class IdbFile extends AbstractFile {
     const path = this.path;
     await idbFS._doRm(path);
     const db = await idbFS._open();
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const contentStore = idbFS._getObjectStore(
-          db,
-          CONTENT_STORE,
-          "readwrite",
-          resolve,
-          (ev) => idbFS._onWriteError(reject, path, ev),
-          (ev) => idbFS._onAbort(reject, path, ev)
-        );
-        const range = IDBKeyRange.only(path);
-        const request = contentStore.delete(range);
-        request.onerror = (ev) => idbFS._onWriteError(reject, path, ev);
-      });
-    } finally {
-      db.close();
-    }
+    await new Promise<void>((resolve, reject) => {
+      const contentStore = idbFS._getObjectStore(
+        db,
+        CONTENT_STORE,
+        "readwrite"
+      );
+      const range = IDBKeyRange.only(path);
+      const request = contentStore.delete(range);
+      request.onsuccess = () => resolve();
+      request.onerror = (ev) => idbFS._onWriteError(reject, path, ev);
+    });
   }
 
   public async _doWrite(
@@ -107,34 +89,26 @@ export class IdbFile extends AbstractFile {
 
     const path = this.path;
     const db = await idbFS._open();
-    try {
-      return new Promise<void>((resolve, reject) => {
-        const contentStore = idbFS._getObjectStore(
-          db,
-          CONTENT_STORE,
-          "readwrite",
-          () => {
-            void (async () => {
-              try {
-                stats = stats ?? { created: Date.now() };
-                stats.size = await converter.getSize(content, options);
-                stats.accessed = stats.modified = Date.now();
-                await idbFS._doPatch(path, {}, stats, options);
-                resolve();
-              } catch (e) {
-                idbFS._onWriteError(reject, path, e);
-              }
-            })();
-          },
-          (ev) => idbFS._onWriteError(reject, path, ev),
-          (ev) => idbFS._onAbort(reject, path, ev)
-        );
-        const contentReq = contentStore.put(content, path);
-        contentReq.onerror = (ev) => idbFS._onWriteError(reject, path, ev);
-      });
-    } finally {
-      db.close();
-    }
+    return new Promise<void>((resolve, reject) => {
+      const contentStore = idbFS._getObjectStore(
+        db,
+        CONTENT_STORE,
+        "readwrite"
+      );
+      const contentReq = contentStore.put(content, path);
+      contentReq.onsuccess = async () => {
+        try {
+          stats = stats ?? { created: Date.now() };
+          stats.size = await converter.getSize(content, options);
+          stats.accessed = stats.modified = Date.now();
+          await idbFS._doPatch(path, {}, stats, options);
+          resolve();
+        } catch (e) {
+          idbFS._onWriteError(reject, path, e);
+        }
+      };
+      contentReq.onerror = (ev) => idbFS._onWriteError(reject, path, ev);
+    });
   }
 
   public supportAppend(): boolean {

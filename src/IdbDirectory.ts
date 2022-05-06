@@ -42,62 +42,52 @@ export class IdbDirectory extends AbstractDirectory {
       );
     }
     const db = await idbFS._open();
-    try {
-      return new Promise<Item[]>((resolve, reject) => {
-        const items: Item[] = [];
-        const entryStore = idbFS._getObjectStore(
-          db,
-          ENTRY_STORE,
-          "readonly",
-          () => resolve(items),
-          (ev) => idbFS._onReadError(reject, path, ev),
-          (ev) => idbFS._onAbort(reject, path, ev)
-        );
+    return new Promise<Item[]>((resolve, reject) => {
+      const items: Item[] = [];
+      const entryStore = idbFS._getObjectStore(db, ENTRY_STORE, "readonly");
 
-        let slashCount: number;
-        if (path === "/") {
-          slashCount = 1;
-        } else {
-          slashCount = countSlash("/") + 1; // + 1 is the last slash for directory
-        }
+      let slashCount: number;
+      if (path === "/") {
+        slashCount = 1;
+      } else {
+        slashCount = countSlash("/") + 1; // + 1 is the last slash for directory
+      }
 
-        const range = getRange(path);
-        if (typeof entryStore.getAllKeys === "function") {
-          const request = entryStore.getAllKeys(range);
-          request.onsuccess = (ev) => {
-            const keys = (ev.target as IDBRequest).result as string[];
-            for (const key of keys) {
-              if (
-                path !== key && // remove root dir
-                slashCount === countSlash(key)
-              ) {
-                items.push({ path: key });
-              }
+      const range = getRange(path);
+      if (typeof entryStore.getAllKeys === "function") {
+        const request = entryStore.getAllKeys(range);
+        request.onsuccess = (ev) => {
+          const keys = (ev.target as IDBRequest).result as string[];
+          for (const key of keys) {
+            if (
+              path !== key && // remove root dir
+              slashCount === countSlash(key)
+            ) {
+              items.push({ path: key });
             }
-          };
-          request.onerror = (ev) => idbFS._onReadError(reject, path, ev);
-        } else {
-          const request = entryStore.openCursor(range);
-          request.onsuccess = (ev) => {
-            const cursor = (ev.target as IDBRequest)
-              .result as IDBCursorWithValue;
-            if (cursor) {
-              const key = cursor.key.toString();
-              if (
-                path !== key && // remove root dir
-                slashCount === countSlash(key)
-              ) {
-                items.push({ path: key });
-              }
-              cursor.continue();
+          }
+          resolve(items);
+        };
+        request.onerror = (ev) => idbFS._onReadError(reject, path, ev);
+      } else {
+        const request = entryStore.openCursor(range);
+        request.onsuccess = (ev) => {
+          const cursor = (ev.target as IDBRequest).result as IDBCursorWithValue;
+          if (cursor) {
+            const key = cursor.key.toString();
+            if (
+              path !== key && // remove root dir
+              slashCount === countSlash(key)
+            ) {
+              items.push({ path: key });
             }
-          };
-          request.onerror = (ev) => idbFS._onReadError(reject, path, ev);
-        }
-      });
-    } finally {
-      db.close();
-    }
+            cursor.continue();
+          }
+          resolve(items);
+        };
+        request.onerror = (ev) => idbFS._onReadError(reject, path, ev);
+      }
+    });
   }
 
   public async _doMkcol(): Promise<void> {
