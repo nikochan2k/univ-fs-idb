@@ -59,32 +59,15 @@ export class IdbFile extends AbstractFile {
     stats: Stats | undefined,
     options: WriteOptions
   ): Promise<void> {
-    let head: Data | undefined;
-    if (options.append && stats) {
-      head = await this._doRead(stats, options);
-    }
-
     const idbFS = this.idbFS;
     const converter = this._getConverter();
     let content: Blob | ArrayBuffer | string;
     if (idbFS.supportsBlob) {
       content = await converter.toBlob(data, options);
-      if (head) {
-        content = new Blob([await converter.toBlob(head, options), content]);
-      }
     } else if (idbFS.supportsArrayBuffer) {
       content = await converter.toArrayBuffer(data, options);
-      if (head) {
-        content = new Blob([
-          await converter.toArrayBuffer(head, options),
-          content,
-        ]);
-      }
     } else {
       content = await converter.toBinary(data, options);
-      if (head) {
-        content = (await converter.toBinary(head, options)) + content;
-      }
     }
 
     const path = this.path;

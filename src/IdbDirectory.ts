@@ -1,4 +1,4 @@
-import { AbstractDirectory, Item, TypeMismatchError } from "univ-fs";
+import { AbstractDirectory, Item } from "univ-fs";
 import { ENTRY_STORE, IdbFileSystem } from "./IdbFileSystem";
 
 const DIR_OPEN_BOUND = String.fromCharCode("/".charCodeAt(0) + 1);
@@ -33,14 +33,6 @@ export class IdbDirectory extends AbstractDirectory {
   public async _doList(): Promise<Item[]> {
     const path = this.path;
     const idbFS = this.idbFS;
-    const stats = await idbFS._getEntry(path);
-    if (stats.size != null) {
-      throw idbFS._error(
-        path,
-        `"${path}" is not directory`,
-        TypeMismatchError.name
-      );
-    }
     const db = await idbFS._open();
     return new Promise<Item[]>((resolve, reject) => {
       const items: Item[] = [];

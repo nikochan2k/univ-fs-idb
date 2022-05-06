@@ -1,3 +1,4 @@
+import { hasBlob } from "univ-conv";
 import {
   AbortError,
   AbstractFileSystem,
@@ -33,6 +34,8 @@ export interface IdbFileSystemOptions extends FileSystemOptions {
 }
 
 export class IdbFileSystem extends AbstractFileSystem {
+  private db?: IDBDatabase;
+
   public supportsArrayBuffer: boolean | undefined;
   public supportsBlob: boolean | undefined;
 
@@ -160,8 +163,6 @@ export class IdbFileSystem extends AbstractFileSystem {
     reject(this._error(path, ev, NoModificationAllowedError.name));
   }
 
-  private db?: IDBDatabase;
-
   /* eslint-enable */
   public async _open(): Promise<IDBDatabase> {
     if (this.db) {
@@ -185,13 +186,21 @@ export class IdbFileSystem extends AbstractFileSystem {
       request.onsuccess = async (e) => {
         const db = (e.target as IDBRequest).result as IDBDatabase;
         if (this.supportsBlob == null || this.supportsArrayBuffer == null) {
-          await new Promise<void>((res) => {
-            const testStore = this._getObjectStore(db, TEST_STORE, "readwrite");
-            const blob = new Blob(["test"]);
-            const req = testStore.put(blob, "blob");
-            req.onsuccess = () => this.enableBlob(res, true);
-            req.onerror = () => this.enableBlob(res, false);
-          });
+          if (hasBlob) {
+            await new Promise<void>((res) => {
+              const testStore = this._getObjectStore(
+                db,
+                TEST_STORE,
+                "readwrite"
+              );
+              const blob = new Blob(["test"]);
+              const req = testStore.put(blob, "blob");
+              req.onsuccess = () => this.enableBlob(res, true);
+              req.onerror = () => this.enableBlob(res, false);
+            });
+          } else {
+            this.supportsBlob = false;
+          }
 
           await new Promise<void>((res) => {
             const testStore = this._getObjectStore(db, TEST_STORE, "readwrite");
