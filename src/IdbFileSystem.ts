@@ -1,4 +1,4 @@
-import { hasBlob } from "univ-conv";
+import { isBrowser } from "univ-conv";
 import {
   AbortError,
   AbstractFileSystem,
@@ -190,7 +190,7 @@ export class IdbFileSystem extends AbstractFileSystem {
         if (!this.initialized) {
           this.initialized = true;
 
-          if (hasBlob && this.storeType == null) {
+          if (isBrowser && this.storeType == null) {
             await new Promise<void>((res) => {
               const testStore = this._getObjectStore(
                 db,
