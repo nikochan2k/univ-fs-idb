@@ -52,7 +52,7 @@
   },
   "dependencies": {
     "tslib": "^2.4.0",
-    "univ-fs": "^0.8.5"
+    "univ-fs": "^0.8.8"
   },
   "author": "Yoshihiro Seki",
   "license": "MIT"
