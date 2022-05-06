@@ -18,12 +18,23 @@ export class IdbFile extends AbstractFile {
       const range = IDBKeyRange.only(path);
       const request = contentStore.get(range);
       request.onsuccess = async () => {
-        const result = request.result as Data;
+        let result = request.result as Data;
         if (result != null) {
           if (idbFS.idbOptions?.useAccessed) {
             await this.idbFS._putEntry(path, {
               ...stats,
               accessed: Date.now(),
+            });
+          }
+
+          const converter = this._getConverter();
+          if (idbFS.storeType === "blob") {
+            result = await converter.toBlob(result);
+          } else if (idbFS.storeType === "arraybuffer") {
+            result = await converter.toArrayBuffer(result);
+          } else {
+            result = await converter.toArrayBuffer(result, {
+              srcStringType: "binary",
             });
           }
           resolve(result);
@@ -62,9 +73,9 @@ export class IdbFile extends AbstractFile {
     const idbFS = this.idbFS;
     const converter = this._getConverter();
     let content: Blob | ArrayBuffer | string;
-    if (idbFS.supportsBlob) {
+    if (idbFS.storeType === "blob") {
       content = await converter.toBlob(data, options);
-    } else if (idbFS.supportsArrayBuffer) {
+    } else if (idbFS.storeType === "arraybuffer") {
       content = await converter.toArrayBuffer(data, options);
     } else {
       content = await converter.toBinary(data, options);

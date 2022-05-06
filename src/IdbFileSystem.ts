@@ -21,7 +21,7 @@ import {
 import { IdbDirectory } from "./IdbDirectory";
 import { IdbFile } from "./IdbFile";
 
-type VoidType = (value: void | PromiseLike<void>) => void;
+export type StoreType = "blob" | "arraybuffer" | "binary";
 
 export const TEST_STORE = "univ-fs-test";
 export const ENTRY_STORE = "univ-fs-entries";
@@ -30,17 +30,19 @@ export const CONTENT_STORE = "univ-fs-contents";
 const indexedDB: IDBFactory = window.indexedDB || (window as any).mozIndexedDB; // eslint-disable-line
 
 export interface IdbFileSystemOptions extends FileSystemOptions {
+  storeType?: StoreType;
   useAccessed?: boolean;
 }
 
 export class IdbFileSystem extends AbstractFileSystem {
   private db?: IDBDatabase;
+  private initialized = false;
 
-  public supportsArrayBuffer: boolean | undefined;
-  public supportsBlob: boolean | undefined;
+  public storeType?: StoreType;
 
   constructor(dbName: string, public idbOptions?: IdbFileSystemOptions) {
     super(dbName, idbOptions);
+    this.storeType = idbOptions?.storeType;
   }
 
   public _doGetDirectory(path: string): Promise<Directory> {
@@ -185,8 +187,10 @@ export class IdbFileSystem extends AbstractFileSystem {
       };
       request.onsuccess = async (e) => {
         const db = (e.target as IDBRequest).result as IDBDatabase;
-        if (this.supportsBlob == null || this.supportsArrayBuffer == null) {
-          if (hasBlob) {
+        if (!this.initialized) {
+          this.initialized = true;
+
+          if (hasBlob && this.storeType == null) {
             await new Promise<void>((res) => {
               const testStore = this._getObjectStore(
                 db,
@@ -195,20 +199,34 @@ export class IdbFileSystem extends AbstractFileSystem {
               );
               const blob = new Blob(["test"]);
               const req = testStore.put(blob, "blob");
-              req.onsuccess = () => this.enableBlob(res, true);
-              req.onerror = () => this.enableBlob(res, false);
+              req.onsuccess = () => {
+                this.storeType = "blob";
+                res();
+              };
+              req.onerror = () => res();
             });
-          } else {
-            this.supportsBlob = false;
           }
 
-          await new Promise<void>((res) => {
-            const testStore = this._getObjectStore(db, TEST_STORE, "readwrite");
-            const buffer = new ArrayBuffer(10);
-            const req = testStore.put(buffer, "arraybuffer");
-            req.onsuccess = () => this.enableArrayBuffer(res, true);
-            req.onerror = () => this.enableArrayBuffer(res, false);
-          });
+          if (this.storeType == null) {
+            await new Promise<void>((res) => {
+              const testStore = this._getObjectStore(
+                db,
+                TEST_STORE,
+                "readwrite"
+              );
+              const buffer = new ArrayBuffer(10);
+              const req = testStore.put(buffer, "arraybuffer");
+              req.onsuccess = () => {
+                this.storeType = "binary";
+                res();
+              };
+              req.onerror = () => res();
+            });
+          }
+
+          if (this.storeType == null) {
+            this.storeType = "binary";
+          }
 
           const stats = await new Promise<Stats>((res, rej) => {
             const entryStore = this._getObjectStore(
@@ -282,14 +300,4 @@ export class IdbFileSystem extends AbstractFileSystem {
   public supportDirectory(): boolean {
     return true;
   }
-
-  private enableArrayBuffer = (res: VoidType, result: boolean) => {
-    this.supportsArrayBuffer = result;
-    res();
-  };
-
-  private enableBlob = (res: VoidType, result: boolean) => {
-    this.supportsBlob = result;
-    res();
-  };
 }
