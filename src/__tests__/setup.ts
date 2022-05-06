@@ -19,7 +19,7 @@ export const setup = async () => {
     });
     await root.mkdir({
       onExists: OnExists.Ignore,
-      onNoParent: OnNoParent.MakeParents,
+      onNoParent: OnNoParent.Error,
       ignoreHook: true,
     });
   } catch (e) {
