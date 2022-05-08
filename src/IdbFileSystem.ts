@@ -67,16 +67,15 @@ export class IdbFileSystem extends AbstractFileSystem {
   public async _doGetURL(
     path: string,
     isDirectory: boolean,
-    options?: URLOptions
+    options: URLOptions
   ): Promise<string> {
-    options = { method: "GET", ...options };
     const repository = this.repository;
     if (options.method !== "GET") {
       throw createError({
         name: NotSupportedError.name,
         repository,
         path,
-        e: { message: `"${options.method}" is not supported` }, // eslint-disable-line
+        e: { message: `"${options.method ?? ""}" is not supported` },
       });
     }
     if (isDirectory) {
