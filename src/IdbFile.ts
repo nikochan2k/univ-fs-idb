@@ -8,6 +8,24 @@ export class IdbFile extends AbstractFile {
     super(idbFS, path);
   }
 
+  public async _doDelete(): Promise<void> {
+    const idbFS = this.idbFS;
+    const path = this.path;
+    await idbFS._doDelete(path);
+    const db = await idbFS._open();
+    await new Promise<void>((resolve, reject) => {
+      const contentStore = idbFS._getObjectStore(
+        db,
+        CONTENT_STORE,
+        "readwrite"
+      );
+      const range = IDBKeyRange.only(path);
+      const request = contentStore.delete(range);
+      request.onsuccess = () => resolve();
+      request.onerror = (ev) => idbFS._onWriteError(reject, path, ev);
+    });
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   public async _doRead(stats: Stats, _options: ReadOptions): Promise<Data> {
     const idbFS = this.idbFS;
@@ -45,24 +63,6 @@ export class IdbFile extends AbstractFile {
       request.onerror = (ev) => idbFS._onReadError(reject, path, ev);
     });
     return data;
-  }
-
-  public async _doRm(): Promise<void> {
-    const idbFS = this.idbFS;
-    const path = this.path;
-    await idbFS._doRm(path);
-    const db = await idbFS._open();
-    await new Promise<void>((resolve, reject) => {
-      const contentStore = idbFS._getObjectStore(
-        db,
-        CONTENT_STORE,
-        "readwrite"
-      );
-      const range = IDBKeyRange.only(path);
-      const request = contentStore.delete(range);
-      request.onsuccess = () => resolve();
-      request.onerror = (ev) => idbFS._onWriteError(reject, path, ev);
-    });
   }
 
   public async _doWrite(

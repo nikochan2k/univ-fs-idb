@@ -30,6 +30,10 @@ export class IdbDirectory extends AbstractDirectory {
     super(idbFS, path);
   }
 
+  public async _doDelete(): Promise<void> {
+    await this.idbFS._doDelete(this.path);
+  }
+
   public async _doList(): Promise<Item[]> {
     const path = this.path;
     const idbFS = this.idbFS;
@@ -88,9 +92,5 @@ export class IdbDirectory extends AbstractDirectory {
       created: now,
       modified: now,
     });
-  }
-
-  public async _doRmdir(): Promise<void> {
-    await this.idbFS._doRm(this.path);
   }
 }

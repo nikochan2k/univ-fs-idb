@@ -45,12 +45,50 @@ export class IdbFileSystem extends AbstractFileSystem {
     this.storeType = idbOptions?.storeType;
   }
 
-  public _doGetDirectory(path: string): Promise<Directory> {
-    return Promise.resolve(new IdbDirectory(this, path));
+  public async _doDelete(path: string): Promise<void> {
+    const db = await this._open();
+    await new Promise<void>((resolve, reject) => {
+      const entryStore = this._getObjectStore(db, ENTRY_STORE, "readwrite");
+      const range = IDBKeyRange.only(path);
+      const request = entryStore.delete(range);
+      request.onsuccess = () => resolve();
+      request.onerror = (ev) => this._onWriteError(reject, path, ev);
+    });
   }
 
-  public _doGetFile(path: string): Promise<File> {
-    return Promise.resolve(new IdbFile(this, path));
+  public _doGetDirectory(path: string): Directory {
+    return new IdbDirectory(this, path);
+  }
+
+  public _doGetFile(path: string): File {
+    return new IdbFile(this, path);
+  }
+
+  public async _doGetURL(
+    path: string,
+    isDirectory: boolean,
+    options?: URLOptions
+  ): Promise<string> {
+    options = { method: "GET", ...options };
+    const repository = this.repository;
+    if (options.method !== "GET") {
+      throw createError({
+        name: NotSupportedError.name,
+        repository,
+        path,
+        e: { message: `"${options.method}" is not supported` }, // eslint-disable-line
+      });
+    }
+    if (isDirectory) {
+      throw createError({
+        name: TypeMismatchError.name,
+        repository,
+        path,
+        e: { message: `"${path}" is not a file` },
+      });
+    }
+    const blob = await this.read(path, "blob");
+    return URL.createObjectURL(blob);
   }
 
   public async _doHead(path: string): Promise<Stats> {
@@ -64,44 +102,6 @@ export class IdbFileSystem extends AbstractFileSystem {
     _options: PatchOptions // eslint-disable-line
   ): Promise<void> {
     await this._putEntry(path, { ...stats, ...props });
-  }
-
-  public async _doRm(path: string): Promise<void> {
-    const db = await this._open();
-    await new Promise<void>((resolve, reject) => {
-      const entryStore = this._getObjectStore(db, ENTRY_STORE, "readwrite");
-      const range = IDBKeyRange.only(path);
-      const request = entryStore.delete(range);
-      request.onsuccess = () => resolve();
-      request.onerror = (ev) => this._onWriteError(reject, path, ev);
-    });
-  }
-
-  public async _doToURL(
-    path: string,
-    isDirectory: boolean,
-    options?: URLOptions
-  ): Promise<string> {
-    options = { urlType: "GET", ...options };
-    const repository = this.repository;
-    if (options.urlType !== "GET") {
-      throw createError({
-        name: NotSupportedError.name,
-        repository,
-        path,
-        e: { message: `"${options.urlType}" is not supported` }, // eslint-disable-line
-      });
-    }
-    if (isDirectory) {
-      throw createError({
-        name: TypeMismatchError.name,
-        repository,
-        path,
-        e: { message: `"${path}" is not a file` },
-      });
-    }
-    const blob = await this.read(path, "blob");
-    return URL.createObjectURL(blob);
   }
 
   public _error(
